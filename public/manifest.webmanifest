@@ -1,0 +1,9 @@
+{
+  "name": "Gestão do estúdio",
+  "short_name": "Estúdio",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F4F5F2",
+  "theme_color": "#0F6E5C",
+  "icons": [{ "src": "/icone.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
