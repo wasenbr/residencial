@@ -23,6 +23,7 @@ export function AlunoFicha() {
   const [editando, setEditando] = useState(false);
   const [pagar, setPagar] = useState<Devendo | null>(null);
   const [matricular, setMatricular] = useState(false);
+  const [perguntaInativar, setPerguntaInativar] = useState(false);
   if (!dados) return <Carregando erro={erro} />;
   const { aluno, turmas, contratos, mensalidades, familia } = dados;
   const contrato = contratos.find((c) => !c.encerrado_em) ?? null;
@@ -68,7 +69,11 @@ export function AlunoFicha() {
           {turmas.length === 0 && <div className="suave">Sem turmas.</div>}
           {turmas.map((t) => (
             <div key={t.id} className="resumo-linha"><span><b>{t.nome}</b><div className="pequeno suave">{t.dias ?? t.modalidade} · {t.aulas_semana} aulas</div></span>
-              <button className="link" onClick={() => acao(() => del(`/alunos/${aluno.id}/turmas/${t.id}`), 'Matrícula removida.')}>Remover</button></div>
+              <button className="link" onClick={async () => {
+                const ultima = turmas.length === 1 && !!aluno.ativo;
+                await acao(() => del(`/alunos/${aluno.id}/turmas/${t.id}`), 'Matrícula removida.');
+                if (ultima) setPerguntaInativar(true);
+              }}>Remover</button></div>
           ))}
           {turmas.length > 0 && <div className="resumo-linha forte"><span>Total semanal</span><span>{aulas} aulas</span></div>}
         </section>
@@ -107,6 +112,15 @@ export function AlunoFicha() {
 
       {pagar && <PagarModal item={pagar} onFechar={() => setPagar(null)} onPago={() => { setPagar(null); atualizar(); }} />}
       {editando && <EditarAluno aluno={aluno} onFechar={() => setEditando(false)} onSalvo={() => { setEditando(false); atualizar(); void recarregar(); }} />}
+      {perguntaInativar && (
+        <Modal titulo="Aluno sem turma" onFechar={() => setPerguntaInativar(false)}>
+          <p style={{ margin: 0 }}>{aluno.nome} não está mais em nenhuma turma. Se continuar ativo, a mensalidade será copiada de novo no próximo mês. Inativar o aluno agora?</p>
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+            <Botao onClick={() => setPerguntaInativar(false)}>Manter ativo</Botao>
+            <Botao tipo="primario" onClick={async () => { setPerguntaInativar(false); await acao(() => put(`/alunos/${aluno.id}`, { ativo: 0 }), 'Aluno inativado.'); }}>Inativar</Botao>
+          </div>
+        </Modal>
+      )}
       {matricular && base && (
         <Modal titulo="Matricular em turma" onFechar={() => setMatricular(false)}>
           <div className="lista-cartoes">

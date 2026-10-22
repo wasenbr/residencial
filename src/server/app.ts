@@ -114,6 +114,53 @@ export function criarApp() {
     return c.json({ ...resumo, fechadoEm: fech?.fechado_em ?? null });
   });
 
+  // Indicadores mês a mês (padrão: 12 meses terminando na competência pedida).
+  app.get('/historico', async (c) => {
+    const db = c.env.DB;
+    const fim = compDe(c);
+    const n = Math.min(24, Math.max(1, Number(c.req.query('meses') ?? 12) || 12));
+    const comps = Array.from({ length: n }, (_, i) => somarMeses(fim, i - (n - 1)));
+    const primeira = somarMeses(comps[0], -1);
+    const [resumos, pares, fech] = await Promise.all([
+      Promise.all(comps.map((comp) => resumoDoMes(db, comp))),
+      db.prepare('SELECT DISTINCT aluno_id, competencia FROM mensalidades WHERE cancelada = 0 AND valor > 0').all(),
+      db.prepare('SELECT competencia FROM fechamentos').all(),
+    ]);
+    const porMes = new Map<string, Set<number>>();
+    const primeiroMes = new Map<number, string>();
+    for (const p of pares.results as { aluno_id: number; competencia: string }[]) {
+      if (!porMes.has(p.competencia)) porMes.set(p.competencia, new Set());
+      porMes.get(p.competencia)!.add(p.aluno_id);
+      const f = primeiroMes.get(p.aluno_id);
+      if (!f || p.competencia < f) primeiroMes.set(p.aluno_id, p.competencia);
+    }
+    const fechados = new Set((fech.results as { competencia: string }[]).map((x) => x.competencia));
+    const meses = resumos.map((r, i) => {
+      const comp = comps[i];
+      const ant = i === 0 ? primeira : comps[i - 1];
+      const ativos = porMes.get(comp) ?? new Set<number>();
+      const antes = porMes.get(ant);
+      const temDados = ativos.size > 0 || r.despesas.total > 0;
+      // Entradas e saídas só fazem sentido quando o mês anterior também tem dados no sistema.
+      let novos: number | null = null, saidas: number | null = null;
+      if (antes && antes.size > 0 && ativos.size > 0) {
+        novos = [...ativos].filter((a) => !antes.has(a) && primeiroMes.get(a) === comp).length;
+        saidas = [...antes].filter((a) => !ativos.has(a)).length;
+      }
+      const porModalidade = Object.fromEntries(r.porModalidade.map((m) => [m.nome, m.faturamento]));
+      return {
+        competencia: comp, temDados, fechado: fechados.has(comp),
+        alunos: ativos.size, novos, saidas,
+        faturamento: r.faturamento, recebido: r.recebido, aberto: r.aberto, atrasado: r.atrasos.reduce((s, a) => s + a.aberto, 0),
+        caixa: r.caixa.total, despesas: r.despesas.total, sobra: r.sobra,
+        ticket: ativos.size ? Math.round((r.faturamento / ativos.size) * 100) / 100 : 0,
+        inadimplencia: r.faturamento ? Math.round((r.aberto / r.faturamento) * 1000) / 10 : 0,
+        porModalidade,
+      };
+    });
+    return c.json(meses);
+  });
+
   // ---------- Alunos ----------
   app.get('/alunos', async (c) => {
     const db = c.env.DB;
@@ -367,20 +414,41 @@ export function criarApp() {
     const venc = `${competencia}-${String(cfg.dia_vencimento).padStart(2, '0')}`;
     const ja = await db.prepare('SELECT COUNT(*) AS n FROM mensalidades WHERE competencia = ?').bind(competencia).first<{ n: number }>();
     if ((ja?.n ?? 0) > 0) throw new Erro(409, 'Este mês já tem mensalidades.');
-    const r = await db.prepare(`
-      INSERT INTO mensalidades (aluno_id, contrato_id, competencia, modalidade_id, descricao, valor, vencimento)
-      SELECT m.aluno_id, m.contrato_id, ?, m.modalidade_id, m.descricao, m.valor, ?
+    const anteriores = (await db.prepare(`
+      SELECT m.aluno_id, m.contrato_id, m.modalidade_id, m.descricao, m.valor
       FROM mensalidades m JOIN alunos a ON a.id = m.aluno_id
-      LEFT JOIN contratos c ON c.id = m.contrato_id
-      WHERE m.competencia = ? AND m.cancelada = 0 AND a.ativo = 1 AND m.valor > 0
-        AND (c.id IS NULL OR c.encerrado_em IS NULL)`).bind(competencia, venc, ant).run();
+      WHERE m.competencia = ? AND m.cancelada = 0 AND a.ativo = 1 AND m.valor > 0`).bind(ant).all()).results as unknown as
+      Pick<Mensalidade, 'aluno_id' | 'contrato_id' | 'modalidade_id' | 'descricao' | 'valor'>[];
+    const contratos = new Map((await db.prepare('SELECT * FROM contratos').all()).results.map((x) => [(x as unknown as Contrato).id, x as unknown as Contrato]));
+    const vigente = (ct: Contrato) => !ct.encerrado_em && (ct.meses == null || diffMeses(ct.inicio, competencia) < ct.meses);
+    const novas: D1PreparedStatement[] = [];
+    let contratosFinalizados = 0;
+    for (const m of anteriores) {
+      let contratoId = m.contrato_id;
+      if (contratoId != null) {
+        const atual = contratos.get(contratoId);
+        let ct = atual && vigente(atual) ? atual : undefined;
+        // Contrato renovado: a cobrança segue no contrato novo do mesmo aluno.
+        if (!ct && atual?.encerrado_em) {
+          ct = [...contratos.values()].find((x) => x.aluno_id === m.aluno_id && x.id !== atual.id && x.inicio <= competencia && vigente(x));
+        }
+        if (!ct) {
+          if (atual && !atual.encerrado_em) contratosFinalizados++;
+          continue;
+        }
+        contratoId = ct.id;
+      }
+      novas.push(db.prepare('INSERT INTO mensalidades (aluno_id, contrato_id, competencia, modalidade_id, descricao, valor, vencimento) VALUES (?,?,?,?,?,?,?)')
+        .bind(m.aluno_id, contratoId, competencia, m.modalidade_id, m.descricao, m.valor, venc));
+    }
+    for (let i = 0; i < novas.length; i += 50) await db.batch(novas.slice(i, i + 50));
     const f = await db.prepare(`
       INSERT INTO despesas (competencia, descricao, categoria, tipo, valor, vencimento, despesa_fixa_id)
       SELECT ?, f.descricao, f.categoria, 'fixa', COALESCE(f.valor, 0),
              CASE WHEN f.dia IS NULL THEN NULL ELSE ? || '-' || printf('%02d', f.dia) END, f.id
       FROM despesas_fixas f WHERE f.ativo = 1
         AND NOT EXISTS (SELECT 1 FROM despesas d WHERE d.competencia = ? AND d.despesa_fixa_id = f.id)`).bind(competencia, competencia, competencia).run();
-    return c.json({ mensalidades: r.meta.changes, despesas: f.meta.changes });
+    return c.json({ mensalidades: novas.length, despesas: f.meta.changes, contratosFinalizados });
   });
 
   // ---------- Despesas ----------

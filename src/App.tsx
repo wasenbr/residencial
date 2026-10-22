@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { Abas, Carregando, Menu } from './ui';
 import { Provedor, useApp } from './store';
 import { Dashboard, Painel } from './pages/Dashboard';
+import { Historico } from './pages/Historico';
 import { Alunos } from './pages/Alunos';
 import { AlunoFicha } from './pages/AlunoFicha';
 import { Turmas } from './pages/Turmas';
@@ -30,6 +31,7 @@ function Casca() {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/dashboard" element={<Painel />} />
+          <Route path="/historico" element={<Historico />} />
           <Route path="/alunos" element={<Alunos />} />
           <Route path="/alunos/:id" element={<AlunoFicha />} />
           <Route path="/turmas" element={<Turmas />} />

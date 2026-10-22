@@ -33,6 +33,7 @@ export function Painel() {
     <>
       <Topo titulo="Dashboard" sub={`${r.alunosAtivos} alunos ativos · ${r.qtdMensalidades} mensalidades em ${nomeComp(comp)}`}>
         <SeletorMes />
+        <Link className="btn" to="/historico">Últimos 12 meses</Link>
         <Link className="btn primario" to="/fechamento">Ver fechamento</Link>
       </Topo>
 
@@ -121,8 +122,9 @@ export function SemMes({ comp, onGerado }: { comp: string; onGerado: () => void 
   async function gerar() {
     setOcupado(true);
     try {
-      const r = await post<{ mensalidades: number; despesas: number }>('/mes/gerar', { competencia: comp });
-      toast(`${r.mensalidades} mensalidades e ${r.despesas} despesas fixas geradas.`);
+      const r = await post<{ mensalidades: number; despesas: number; contratosFinalizados: number }>('/mes/gerar', { competencia: comp });
+      toast(`${r.mensalidades} mensalidades e ${r.despesas} despesas fixas geradas.` +
+        (r.contratosFinalizados ? ` ${r.contratosFinalizados} contrato(s) terminaram e não foram copiados: renove na ficha do aluno.` : ''));
       await recarregar();
       onGerado();
     } catch (e) { toast(e instanceof Error ? e.message : 'Erro', true); } finally { setOcupado(false); }
