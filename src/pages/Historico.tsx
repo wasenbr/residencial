@@ -43,6 +43,7 @@ function Quadro({ meses, series, fmt, tipo, minZero = true }: {
   const n = meses.length;
   const x = (i: number) => L + ((W - L - R) * (i + 0.5)) / n;
   const y = (v: number) => T + (H - T - B) * (1 - (v - lo) / (hi - lo));
+  const salto = Math.ceil(n / 14);
   const larg = Math.min(tipo === 'pilha' ? 40 : 26, ((W - L - R) / n) * 0.7 / (tipo === 'pilha' ? 1 : series.length));
 
   return (
@@ -55,7 +56,7 @@ function Quadro({ meses, series, fmt, tipo, minZero = true }: {
             <text x={L - 8} y={y(t) + 4} textAnchor="end" fontSize="11" fill="var(--suave)">{fmt(t)}</text>
           </g>
         ))}
-        {meses.map((m, i) => (
+        {meses.map((m, i) => i % salto !== 0 ? null : (
           <text key={m.competencia} x={x(i)} y={H - 8} textAnchor="middle" fontSize="11" fill="var(--suave)">{rotMes(m.competencia)}</text>
         ))}
         {tipo === 'barra' && series.map((s, k) => s.valores.map((v, i) => v == null ? null : (
@@ -131,14 +132,22 @@ function Variacao({ atual, antes, inverso, fmt }: { atual: number; antes: number
   return <span className="pequeno" style={{ color: bom ? 'var(--marca-escura)' : 'var(--atraso)', fontWeight: 600 }}>{d > 0 ? '▲' : '▼'} {fmt(Math.abs(d))} vs. mês anterior</span>;
 }
 
+const lerPeriodo = () => { try { return localStorage.getItem('periodo') ?? '12m'; } catch { return '12m'; } };
+
 export function Historico() {
-  const { comp } = useApp();
-  const { dados, erro } = useDados(() => get<Mes[]>(`/historico?comp=${comp}&meses=12`), [comp]);
+  const { comp, base } = useApp();
+  const [periodo, setPeriodoEstado] = useState(lerPeriodo);
+  const setPeriodo = (p: string) => { try { localStorage.setItem('periodo', p); } catch { /* sem armazenamento */ } setPeriodoEstado(p); };
+  const consulta = periodo === 'tudo' ? 'tudo=1' : /^\d{4}$/.test(periodo) ? `ano=${periodo}` : `comp=${comp}&meses=12`;
+  const { dados, erro } = useDados(() => get<Mes[]>(`/historico?${consulta}`), [consulta]);
   const [tabela, setTabela] = useState(true);
+  const anos = [...new Set([...(base?.competencias ?? []), comp].map((c) => c.slice(0, 4)))].sort().reverse();
+  const nomePeriodo = periodo === 'tudo' ? 'todo o histórico' : /^\d{4}$/.test(periodo) ? periodo : 'os últimos 12 meses';
   if (!dados) return <Carregando erro={erro} />;
   const meses = dados;
-  const ult = meses[meses.length - 1];
-  const ant = meses.length > 1 && meses[meses.length - 2].temDados ? meses[meses.length - 2] : null;
+  const iUlt = meses.map((m) => m.temDados).lastIndexOf(true);
+  const ult = meses[iUlt >= 0 ? iUlt : meses.length - 1];
+  const ant = iUlt > 0 && meses[iUlt - 1].temDados ? meses[iUlt - 1] : null;
   const ativos = meses.filter((m) => m.temDados);
   const media = (f: (m: Mes) => number) => (ativos.length ? ativos.reduce((s, m) => s + f(m), 0) / ativos.length : 0);
   const mods = [...new Set(meses.flatMap((m) => Object.keys(m.porModalidade)))];
@@ -161,7 +170,16 @@ export function Historico() {
 
   return (
     <>
-      <Topo titulo="Visão anual" sub={`${rotMes(meses[0].competencia)} a ${rotMes(ult.competencia)} · mês de referência: ${nomeComp(ult.competencia)}`} />
+      <Topo titulo="Visão anual" sub={`${rotMes(meses[0].competencia)} a ${rotMes(meses[meses.length - 1].competencia)} · mês de referência: ${nomeComp(ult.competencia)}`}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: 'var(--suave)' }}>
+          Período
+          <select className="entrada sel" value={periodo} onChange={(e) => setPeriodo(e.target.value)} aria-label="Período">
+            <option value="12m">Últimos 12 meses</option>
+            {anos.map((a) => <option key={a} value={a}>{a}</option>)}
+            <option value="tudo">Tudo</option>
+          </select>
+        </label>
+      </Topo>
 
       <div className="grade">
         {kpis.map((k) => (
@@ -206,11 +224,11 @@ export function Historico() {
           <h2 style={{ marginBottom: 4 }}>Despesas mês a mês</h2>
           <div className="suave pequeno" style={{ marginBottom: 12 }}>Contas, salários e repasses, por categoria. Média: <Num v={media((m) => m.despesas)} /> por mês.</div>
           <Quadro meses={meses} tipo="pilha" fmt={curto} series={cats.map((c) => ({ nome: c, cor: corCat(c), valores: comDados(meses, (m) => m.despesasPor?.[c] ?? 0) }))} />
-          {cats.length === 0 && <div className="suave">Sem despesas nos últimos 12 meses.</div>}
+          {cats.length === 0 && <div className="suave">Sem despesas em {nomePeriodo}.</div>}
         </section>
 
         <section className="cartao pad" style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <h2>Distribuição das despesas (12 meses)</h2>
+          <h2>Distribuição das despesas ({periodo === 'tudo' ? 'todo o período' : /^\d{4}$/.test(periodo) ? periodo : '12 meses'})</h2>
           {cats.map((c) => (
             <div key={c} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -240,14 +258,14 @@ export function Historico() {
       </div>
 
       <section className="cartao pad" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <h2>Faturamento por modalidade (12 meses)</h2>
+        <h2>Faturamento por modalidade ({periodo === 'tudo' ? 'todo o período' : /^\d{4}$/.test(periodo) ? periodo : '12 meses'})</h2>
         {mods.map((nome) => (
           <div key={nome} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>{nome}</span><Num v={totalMod(nome)} /></div>
             <div className="barra"><i style={{ width: `${(totalMod(nome) / maxMod) * 100}%` }} /></div>
           </div>
         ))}
-        {mods.length === 0 && <div className="suave">Sem dados nos últimos 12 meses.</div>}
+        {mods.length === 0 && <div className="suave">Sem dados em {nomePeriodo}.</div>}
       </section>
 
       <section className="cartao">
