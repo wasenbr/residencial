@@ -1,6 +1,9 @@
-import { afterAll, beforeAll, expect, test } from 'vitest';
+import { afterAll, beforeAll, expect, test, vi } from 'vitest';
 import { bancoDeTeste } from './banco';
 import { criarApp } from '../src/server/app';
+
+// O histórico consulta o banco ~180 vezes por chamada; o limite padrão de 5 s fica no limite.
+vi.setConfig({ testTimeout: 30000 });
 
 let ctx: Awaited<ReturnType<typeof bancoDeTeste>>;
 const app = criarApp();
@@ -70,4 +73,26 @@ test('histórico separa as despesas por categoria e a soma bate com o total', as
     const soma = Object.values(m.despesasPor).reduce((s, v) => s + v, 0);
     expect(soma).toBeCloseTo(m.despesas, 2);
   }
+});
+
+test('histórico por ano traz janeiro a dezembro; "tudo" vai do primeiro ao último mês com lançamento', async () => {
+  const ano = await (await chamar('/historico?ano=2026')).json() as { competencia: string; temDados: boolean }[];
+  expect(ano.map((m) => m.competencia)).toEqual(Array.from({ length: 12 }, (_, i) => `2026-${String(i + 1).padStart(2, '0')}`));
+  expect(ano[0].temDados).toBe(false);
+  expect(ano[7].temDados).toBe(true);
+
+  const tudo = await (await chamar('/historico?tudo=1')).json() as { competencia: string; temDados: boolean }[];
+  expect(tudo[0].competencia).toBe('2026-06');
+  expect(tudo[tudo.length - 1].competencia).toBe('2026-08');
+  expect(tudo.every((m) => m.temDados)).toBe(true);
+
+  expect((await chamar('/historico?ano=26')).status).toBe(400);
+});
+
+test('salário fixo calculado não faz um mês sem lançamentos virar "com dados"', async () => {
+  await ctx.db.prepare("INSERT INTO professores (nome, regra, valor) VALUES ('Fixo', 'fixo', 2300)").run();
+  const lista = await (await chamar('/historico?comp=2026-08&meses=12')).json() as { competencia: string; temDados: boolean; despesas: number }[];
+  expect(lista[0].competencia).toBe('2025-09');
+  expect(lista[0].despesas).toBe(2300);
+  expect(lista[0].temDados).toBe(false);
 });

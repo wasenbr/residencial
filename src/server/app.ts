@@ -117,9 +117,22 @@ export function criarApp() {
   // Indicadores mês a mês (padrão: 12 meses terminando na competência pedida).
   app.get('/historico', async (c) => {
     const db = c.env.DB;
-    const fim = compDe(c);
-    const n = Math.min(24, Math.max(1, Number(c.req.query('meses') ?? 12) || 12));
-    const comps = Array.from({ length: n }, (_, i) => somarMeses(fim, i - (n - 1)));
+    const ano = c.req.query('ano');
+    if (ano && !/^\d{4}$/.test(ano)) throw new Erro(400, 'Ano inválido (use AAAA).');
+    let comps: string[];
+    if (ano) {
+      comps = Array.from({ length: 12 }, (_, i) => `${ano}-${String(i + 1).padStart(2, '0')}`);
+    } else if (c.req.query('tudo')) {
+      // Do primeiro ao último mês que tem lançamento no sistema.
+      const lim = await db.prepare('SELECT MIN(competencia) AS a, MAX(competencia) AS b FROM (SELECT competencia FROM mensalidades UNION ALL SELECT competencia FROM despesas)').first<{ a: string | null; b: string | null }>();
+      const fim = lim?.b ?? compAtual();
+      const n = Math.min(120, diffMeses(lim?.a ?? fim, fim) + 1);
+      comps = Array.from({ length: n }, (_, i) => somarMeses(fim, i - (n - 1)));
+    } else {
+      const fim = compDe(c);
+      const n = Math.min(24, Math.max(1, Number(c.req.query('meses') ?? 12) || 12));
+      comps = Array.from({ length: n }, (_, i) => somarMeses(fim, i - (n - 1)));
+    }
     const primeira = somarMeses(comps[0], -1);
     const [resumos, pares, fech] = await Promise.all([
       Promise.all(comps.map((comp) => resumoDoMes(db, comp))),
@@ -140,7 +153,8 @@ export function criarApp() {
       const ant = i === 0 ? primeira : comps[i - 1];
       const ativos = porMes.get(comp) ?? new Set<number>();
       const antes = porMes.get(ant);
-      const temDados = ativos.size > 0 || r.despesas.total > 0;
+      // Salário calculado pela regra do professor existe em qualquer mês; só conta como dado o que foi lançado.
+      const temDados = ativos.size > 0 || r.despesas.contas > 0 || r.despesas.pessoal.some((x) => !x.calculado);
       // Entradas e saídas só fazem sentido quando o mês anterior também tem dados no sistema.
       let novos: number | null = null, saidas: number | null = null;
       if (antes && antes.size > 0 && ativos.size > 0) {
