@@ -61,3 +61,13 @@ test('histórico traz 12 meses, com alunos novos e saídas', async () => {
   expect(por['2026-07']).toMatchObject({ alunos: 2, saidas: 2, novos: 0 });
   expect(por['2026-08']).toMatchObject({ alunos: 2, saidas: 0 });
 });
+
+test('histórico separa as despesas por categoria e a soma bate com o total', async () => {
+  const lista = await (await chamar('/historico?comp=2026-08&meses=12')).json() as {
+    competencia: string; despesas: number; despesasPor: Record<string, number>;
+  }[];
+  for (const m of lista) {
+    const soma = Object.values(m.despesasPor).reduce((s, v) => s + v, 0);
+    expect(soma).toBeCloseTo(m.despesas, 2);
+  }
+});

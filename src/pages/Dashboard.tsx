@@ -33,7 +33,7 @@ export function Painel() {
     <>
       <Topo titulo="Dashboard" sub={`${r.alunosAtivos} alunos ativos · ${r.qtdMensalidades} mensalidades em ${nomeComp(comp)}`}>
         <SeletorMes />
-        <Link className="btn" to="/historico">Últimos 12 meses</Link>
+        <Link className="btn" to="/historico">Visão anual</Link>
         <Link className="btn primario" to="/fechamento">Ver fechamento</Link>
       </Topo>
 

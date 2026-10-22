@@ -8,10 +8,11 @@ interface Mes {
   competencia: string; temDados: boolean; fechado: boolean;
   alunos: number; novos: number | null; saidas: number | null;
   faturamento: number; recebido: number; aberto: number; atrasado: number;
-  caixa: number; despesas: number; sobra: number; ticket: number; inadimplencia: number;
+  caixa: number; despesas: number; despesasPor: Record<string, number>; sobra: number; ticket: number; inadimplencia: number;
   porModalidade: Record<string, number>;
 }
 
+const CORES_CAT = ['#2F4A73', '#0F6E5C', '#8F3605', '#7A5C12', '#6B3F7A', '#4A7A8C', '#565D59'];
 const COR = { marca: 'var(--marca)', azul: 'var(--azul)', atraso: 'var(--atraso)', suave: 'var(--suave)' };
 const rotMes = (c: string) => `${nomeComp(c, true).slice(0, 3).toLowerCase()}/${c.slice(2, 4)}`;
 const pct = (n: number) => `${n.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
@@ -33,15 +34,16 @@ function escala(max: number, min: number) {
 
 /** Eixo, grade leve e dica ao passar o mouse, comuns aos dois gráficos. */
 function Quadro({ meses, series, fmt, tipo, minZero = true }: {
-  meses: Mes[]; series: Serie[]; fmt: (n: number) => string; tipo: 'linha' | 'barra'; minZero?: boolean;
+  meses: Mes[]; series: Serie[]; fmt: (n: number) => string; tipo: 'linha' | 'barra' | 'pilha'; minZero?: boolean;
 }) {
   const [sel, setSel] = useState<number | null>(null);
-  const todos = series.flatMap((s) => s.valores).filter((v): v is number => v != null);
+  const somas = meses.map((_, i) => series.reduce((t, s) => t + (s.valores[i] ?? 0), 0));
+  const todos = tipo === 'pilha' ? somas : series.flatMap((s) => s.valores).filter((v): v is number => v != null);
   const { lo, hi, ticks } = escala(Math.max(0, ...todos), minZero ? Math.min(0, ...todos) : Math.min(...todos, 0));
   const n = meses.length;
   const x = (i: number) => L + ((W - L - R) * (i + 0.5)) / n;
   const y = (v: number) => T + (H - T - B) * (1 - (v - lo) / (hi - lo));
-  const larg = Math.min(26, ((W - L - R) / n) * 0.7 / series.length);
+  const larg = Math.min(tipo === 'pilha' ? 40 : 26, ((W - L - R) / n) * 0.7 / (tipo === 'pilha' ? 1 : series.length));
 
   return (
     <div style={{ position: 'relative' }}>
@@ -61,6 +63,20 @@ function Quadro({ meses, series, fmt, tipo, minZero = true }: {
             y={Math.min(y(v), y(0))} height={Math.max(1, Math.abs(y(v) - y(0)))} rx={3}
             fill={s.cor} opacity={sel == null || sel === i ? 1 : 0.45} />
         )))}
+        {tipo === 'pilha' && meses.map((m, i) => {
+          let base = 0;
+          return (
+            <g key={m.competencia} opacity={sel == null || sel === i ? 1 : 0.45}>
+              {series.map((s) => {
+                const v = s.valores[i] ?? 0;
+                if (v <= 0) return null;
+                const r = <rect key={s.nome} x={x(i) - larg / 2} width={larg} y={y(base + v)} height={Math.max(1, y(base) - y(base + v))} fill={s.cor} stroke="var(--cartao)" strokeWidth="1" />;
+                base += v;
+                return r;
+              })}
+            </g>
+          );
+        })}
         {tipo === 'linha' && series.map((s) => {
           const trechos: string[] = [];
           let atual = '';
@@ -86,6 +102,7 @@ function Quadro({ meses, series, fmt, tipo, minZero = true }: {
         <div className="cartao" style={{ position: 'absolute', top: 0, left: `${(x(sel) / W) * 100}%`, transform: `translateX(${sel > n / 2 ? '-105%' : '5%'})`, padding: '8px 12px', pointerEvents: 'none', fontSize: 13, boxShadow: '0 4px 14px rgba(0,0,0,.12)', zIndex: 2, minWidth: 150 }}>
           <b>{nomeComp(meses[sel].competencia)}</b>
           {!meses[sel].temDados && <div className="suave">Sem dados</div>}
+          {meses[sel].temDados && tipo === 'pilha' && <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}><span>Total</span><span className="num">{fmt(somas[sel])}</span></div>}
           {meses[sel].temDados && series.map((s) => (
             <div key={s.nome} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
               <span><i style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: s.cor, marginRight: 6 }} />{s.nome}</span>
@@ -117,7 +134,7 @@ function Variacao({ atual, antes, inverso, fmt }: { atual: number; antes: number
 export function Historico() {
   const { comp } = useApp();
   const { dados, erro } = useDados(() => get<Mes[]>(`/historico?comp=${comp}&meses=12`), [comp]);
-  const [tabela, setTabela] = useState(false);
+  const [tabela, setTabela] = useState(true);
   if (!dados) return <Carregando erro={erro} />;
   const meses = dados;
   const ult = meses[meses.length - 1];
@@ -128,6 +145,11 @@ export function Historico() {
   const totalMod = (nome: string) => meses.reduce((s, m) => s + (m.porModalidade[nome] ?? 0), 0);
   mods.sort((a, b) => totalMod(b) - totalMod(a));
   const maxMod = Math.max(1, ...mods.map(totalMod));
+  const cats = [...new Set(meses.flatMap((m) => Object.keys(m.despesasPor ?? {})))];
+  const totalCat = (nome: string) => meses.reduce((s, m) => s + (m.despesasPor?.[nome] ?? 0), 0);
+  cats.sort((a, b) => totalCat(b) - totalCat(a));
+  const totalDesp = cats.reduce((s, c) => s + totalCat(c), 0);
+  const corCat = (nome: string) => CORES_CAT[Math.min(cats.indexOf(nome), CORES_CAT.length - 1)];
 
   const kpis: { rot: string; valor: string; extra: React.ReactNode; atraso?: boolean }[] = [
     { rot: 'Faturamento', valor: brl(ult.faturamento), extra: <Variacao atual={ult.faturamento} antes={ant?.faturamento ?? null} fmt={(n) => brl(n)} /> },
@@ -139,7 +161,7 @@ export function Historico() {
 
   return (
     <>
-      <Topo titulo="Últimos 12 meses" sub={`${rotMes(meses[0].competencia)} a ${rotMes(ult.competencia)} · mês de referência: ${nomeComp(ult.competencia)}`} />
+      <Topo titulo="Visão anual" sub={`${rotMes(meses[0].competencia)} a ${rotMes(ult.competencia)} · mês de referência: ${nomeComp(ult.competencia)}`} />
 
       <div className="grade">
         {kpis.map((k) => (
@@ -172,6 +194,33 @@ export function Historico() {
           <h2 style={{ marginBottom: 4 }}>Alunos pagantes</h2>
           <div className="suave pequeno" style={{ marginBottom: 12 }}>Média: {Math.round(media((m) => m.alunos))} alunos por mês.</div>
           <Quadro meses={meses} tipo="barra" fmt={(n) => String(Math.round(n))} series={[{ nome: 'Alunos', cor: COR.azul, valores: comDados(meses, (m) => m.alunos) }]} />
+        </section>
+
+        <section className="cartao pad">
+          <h2 style={{ marginBottom: 4 }}>Ticket médio</h2>
+          <div className="suave pequeno" style={{ marginBottom: 12 }}>Faturamento dividido pelos alunos pagantes. Média: <Num v={media((m) => m.ticket)} />.</div>
+          <Quadro meses={meses} tipo="linha" fmt={curto} series={[{ nome: 'Ticket médio', cor: COR.marca, valores: comDados(meses, (m) => m.ticket) }]} />
+        </section>
+
+        <section className="cartao pad" style={{ gridColumn: '1 / -1' }}>
+          <h2 style={{ marginBottom: 4 }}>Despesas mês a mês</h2>
+          <div className="suave pequeno" style={{ marginBottom: 12 }}>Contas, salários e repasses, por categoria. Média: <Num v={media((m) => m.despesas)} /> por mês.</div>
+          <Quadro meses={meses} tipo="pilha" fmt={curto} series={cats.map((c) => ({ nome: c, cor: corCat(c), valores: comDados(meses, (m) => m.despesasPor?.[c] ?? 0) }))} />
+          {cats.length === 0 && <div className="suave">Sem despesas nos últimos 12 meses.</div>}
+        </section>
+
+        <section className="cartao pad" style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <h2>Distribuição das despesas (12 meses)</h2>
+          {cats.map((c) => (
+            <div key={c} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span><i style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: corCat(c), marginRight: 6 }} />{c}</span>
+                <span><Num v={totalCat(c)} /> <span className="suave pequeno">{pct((totalCat(c) / (totalDesp || 1)) * 100)}</span></span>
+              </div>
+              <div className="barra"><i style={{ width: `${(totalCat(c) / (totalDesp || 1)) * 100}%`, background: corCat(c) }} /></div>
+            </div>
+          ))}
+          {cats.length > 0 && <div className="suave pequeno">Total no período: <Num v={totalDesp} />.</div>}
         </section>
 
         <section className="cartao pad">
@@ -208,15 +257,15 @@ export function Historico() {
         </div>
         {tabela && (
           <div className="tabela-wrap"><table className="tbl">
-            <thead><tr><th>Mês</th><th className="d">Alunos</th><th className="d">Faturamento</th><th className="d">Recebido</th><th className="d">Em aberto</th><th className="d">Caixa</th><th className="d">Despesas</th><th className="d">Sobra</th><th className="d">Inadimpl.</th></tr></thead>
+            <thead><tr><th>Mês</th><th className="d">Alunos</th><th className="d">Ticket</th><th className="d">Faturamento</th><th className="d">Recebido</th><th className="d">Em aberto</th><th className="d">Caixa</th><th className="d">Despesas</th><th className="d">Sobra</th><th className="d">Inadimpl.</th></tr></thead>
             <tbody>{[...meses].reverse().map((m) => (
               <tr key={m.competencia} style={m.temDados ? undefined : { color: 'var(--suave)' }}>
                 <td>{nomeComp(m.competencia)}{m.fechado ? ' · fechado' : ''}</td>
                 {m.temDados ? <>
-                  <td className="d">{m.alunos}</td><td className="d"><Num v={m.faturamento} /></td><td className="d"><Num v={m.recebido} /></td>
+                  <td className="d">{m.alunos}</td><td className="d"><Num v={m.ticket} /></td><td className="d"><Num v={m.faturamento} /></td><td className="d"><Num v={m.recebido} /></td>
                   <td className="d"><Num v={m.aberto} /></td><td className="d"><Num v={m.caixa} /></td><td className="d"><Num v={m.despesas} /></td>
                   <td className="d"><Num v={m.sobra} /></td><td className="d">{pct(m.inadimplencia)}</td>
-                </> : <td colSpan={8}>Sem dados</td>}
+                </> : <td colSpan={9}>Sem dados</td>}
               </tr>
             ))}</tbody>
           </table></div>

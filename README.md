@@ -40,6 +40,10 @@ npm run typecheck
 
 Estrutura: `functions/api` (API, Hono), `src/server` (rotas), `src/shared` (cálculos compartilhados), `src/import` (leitura e gravação das planilhas), `src/pages` (telas), `migrations` (SQL do D1).
 
+## Planos
+
+- [Lançamento de pagamentos pelo comprovante de Pix](docs/plano-comprovantes-pix.md) (proposta, ainda não implementado).
+
 ## Como a importação lê a planilha
 
 - Cada aba de modalidade vira uma modalidade, e cada bloco lado a lado vira uma turma (nome e horário saem do título do bloco).
