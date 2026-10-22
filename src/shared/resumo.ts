@@ -62,6 +62,7 @@ export interface Resumo {
     totalPessoal: number;
     total: number;
     retiradas: number;
+    porCategoria: Record<string, number>;  // contas por categoria + "Pessoal"
   };
   sobra: number;
   proximoCaixa: { credito: number; gympassEstimado: number };
@@ -181,6 +182,7 @@ export function calcularResumo(d: DadosResumo): Resumo {
 
   // Despesas
   let contas = 0, contasPagas = 0, retiradas = 0;
+  const porCategoria: Record<string, number> = {};
   const pessoal: LinhaPessoal[] = [];
   const profComLancamento = new Set<number>();
   const profNome = new Map(d.professores.map((p) => [p.id, p.nome]));
@@ -194,6 +196,7 @@ export function calcularResumo(d: DadosResumo): Resumo {
       });
     } else {
       contas += x.valor;
+      porCategoria[x.categoria] = (porCategoria[x.categoria] ?? 0) + x.valor;
       if (x.pago_em) contasPagas += x.valor;
     }
   }
@@ -212,6 +215,8 @@ export function calcularResumo(d: DadosResumo): Resumo {
   }
   const totalPessoal = pessoal.reduce((s, x) => s + x.valor, 0);
   const totalDespesas = contas + totalPessoal;
+  if (totalPessoal > 0) porCategoria.Pessoal = (porCategoria.Pessoal ?? 0) + totalPessoal;
+  for (const k of Object.keys(porCategoria)) porCategoria[k] = r2(porCategoria[k]);
 
   const proximoCaixa = { credito: 0, gympassEstimado: 0 };
   for (const p of d.pagamentosCaixaSeguinte) {
@@ -239,7 +244,7 @@ export function calcularResumo(d: DadosResumo): Resumo {
     },
     despesas: {
       contas: r2(contas), contasPagas: r2(contasPagas), pessoal, totalPessoal: r2(totalPessoal),
-      total: r2(totalDespesas), retiradas: r2(retiradas),
+      total: r2(totalDespesas), retiradas: r2(retiradas), porCategoria,
     },
     sobra: r2(caixaTotal - totalDespesas),
     proximoCaixa: { credito: r2(proximoCaixa.credito), gympassEstimado: r2(proximoCaixa.gympassEstimado) },

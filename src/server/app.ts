@@ -152,7 +152,7 @@ export function criarApp() {
         competencia: comp, temDados, fechado: fechados.has(comp),
         alunos: ativos.size, novos, saidas,
         faturamento: r.faturamento, recebido: r.recebido, aberto: r.aberto, atrasado: r.atrasos.reduce((s, a) => s + a.aberto, 0),
-        caixa: r.caixa.total, despesas: r.despesas.total, sobra: r.sobra,
+        caixa: r.caixa.total, despesas: r.despesas.total, despesasPor: r.despesas.porCategoria, sobra: r.sobra,
         ticket: ativos.size ? Math.round((r.faturamento / ativos.size) * 100) / 100 : 0,
         inadimplencia: r.faturamento ? Math.round((r.aberto / r.faturamento) * 1000) / 10 : 0,
         porModalidade,
