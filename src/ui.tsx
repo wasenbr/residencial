@@ -90,7 +90,7 @@ export function Abas() {
 
 export function Menu() {
   const { base } = useApp();
-  const itens: [string, string][] = [['/', 'Dashboard'], ['/historico', '12 meses'], ['/alunos', 'Alunos'], ['/turmas', 'Turmas'], ['/mensalidades', 'Mensalidades'], ['/gympass', 'Gympass'], ['/despesas', 'Despesas'], ['/fechamento', 'Fechamento'], ['/importar', 'Importar planilha'], ['/configuracoes', 'Configurações']];
+  const itens: [string, string][] = [['/', 'Dashboard'], ['/historico', 'Visão anual'], ['/alunos', 'Alunos'], ['/turmas', 'Turmas'], ['/mensalidades', 'Mensalidades'], ['/gympass', 'Gympass'], ['/despesas', 'Despesas'], ['/fechamento', 'Fechamento'], ['/importar', 'Importar planilha'], ['/configuracoes', 'Configurações']];
   return (
     <nav className="menu" aria-label="Menu principal">
       <div className="marca">{base?.config.nome_academia || 'Minha academia'}</div>
