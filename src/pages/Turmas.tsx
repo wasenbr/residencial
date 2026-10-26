@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { get, post, put } from '../api';
 import type { Turma } from '../shared/tipos';
@@ -68,22 +68,39 @@ export function Turmas() {
 function AlunosDaTurma({ id, nome, onFechar }: { id: number; nome: string; onFechar: () => void }) {
   const { toast, recarregar } = useApp();
   const { dados, recarregar: atualizar } = useDados(() => get<{ id: number; nome: string; ativo: number }[]>(`/turmas/${id}/alunos`), [id]);
-  const ativos = dados?.filter((a) => a.ativo);
-  async function inativar(aluno: number) {
+  const [vistos, setVistos] = useState<number[] | null>(null);
+  const [confirmando, setConfirmando] = useState<number | null>(null);
+  useEffect(() => {
+    if (dados && !vistos) setVistos(dados.filter((a) => a.ativo).map((a) => a.id));
+  }, [dados, vistos]);
+  // quem estava ativo ao abrir continua na lista (marcado) até fechar a janela
+  const lista = dados && vistos ? dados.filter((a) => vistos.includes(a.id)) : null;
+  async function alternar(aluno: number, ativo: number) {
     try {
-      await put(`/alunos/${aluno}`, { ativo: 0 });
-      toast('Aluno inativado.');
+      await put(`/alunos/${aluno}`, { ativo });
+      setConfirmando(null);
+      toast(ativo ? 'Aluno reativado.' : 'Aluno inativado.');
       atualizar();
       await recarregar();
     } catch (e) { toast(String((e as Error).message), true); }
   }
   return (
     <Modal titulo={nome} onFechar={onFechar}>
-      {!ativos ? <Carregando /> : ativos.length === 0 ? <div className="vazio">Sem alunos.</div> : (
-        <div>{ativos.map((a) => (
+      {!lista ? <Carregando /> : lista.length === 0 ? <div className="vazio">Sem alunos.</div> : (
+        <div>{lista.map((a) => (
           <div key={a.id} className="resumo-linha">
-            <Link to={`/alunos/${a.id}`} onClick={onFechar}>{a.nome}</Link>
-            <Botao pequeno tipo="perigo" onClick={() => inativar(a.id)}>Inativar</Botao>
+            <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <Link to={`/alunos/${a.id}`} onClick={onFechar} style={a.ativo ? undefined : { opacity: 0.5 }}>{a.nome}</Link>
+              {!a.ativo && <Pilula tipo="aberto">Inativo</Pilula>}
+            </span>
+            {!a.ativo ? <Botao pequeno onClick={() => alternar(a.id, 1)}>Reativar</Botao>
+              : confirmando === a.id ? (
+                <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span className="pequeno suave">Inativar {a.nome}?</span>
+                  <Botao pequeno onClick={() => setConfirmando(null)}>Não</Botao>
+                  <Botao pequeno tipo="perigo" onClick={() => alternar(a.id, 0)}>Sim, inativar</Botao>
+                </span>
+              ) : <Botao pequeno tipo="perigo" onClick={() => setConfirmando(a.id)}>Inativar</Botao>}
           </div>
         ))}</div>
       )}
