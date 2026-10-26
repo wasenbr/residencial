@@ -337,6 +337,11 @@ export function criarApp() {
   });
   app.put('/turmas/:id', async (c) => {
     const b = await c.req.json<Record<string, unknown>>();
+    if ('nome' in b) {
+      const nome = typeof b.nome === 'string' ? b.nome.trim() : '';
+      if (!nome) throw new Erro(400, 'Informe o nome da turma.');
+      b.nome = nome;
+    }
     const campos = ['nome', 'dias', 'horario', 'aulas_semana', 'vagas', 'professor_id', 'ativo'];
     const sets: string[] = [], vals: unknown[] = [];
     for (const k of campos) if (k in b) { sets.push(`${k} = ?`); vals.push(b[k] ?? null); }
