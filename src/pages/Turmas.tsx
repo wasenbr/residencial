@@ -66,11 +66,26 @@ export function Turmas() {
 }
 
 function AlunosDaTurma({ id, nome, onFechar }: { id: number; nome: string; onFechar: () => void }) {
-  const { dados } = useDados(() => get<{ id: number; nome: string; ativo: number }[]>(`/turmas/${id}/alunos`), [id]);
+  const { toast, recarregar } = useApp();
+  const { dados, recarregar: atualizar } = useDados(() => get<{ id: number; nome: string; ativo: number }[]>(`/turmas/${id}/alunos`), [id]);
+  const ativos = dados?.filter((a) => a.ativo);
+  async function inativar(aluno: number) {
+    try {
+      await put(`/alunos/${aluno}`, { ativo: 0 });
+      toast('Aluno inativado.');
+      atualizar();
+      await recarregar();
+    } catch (e) { toast(String((e as Error).message), true); }
+  }
   return (
     <Modal titulo={nome} onFechar={onFechar}>
-      {!dados ? <Carregando /> : dados.length === 0 ? <div className="vazio">Sem alunos.</div> : (
-        <div>{dados.map((a) => <div key={a.id} className="resumo-linha"><Link to={`/alunos/${a.id}`} onClick={onFechar}>{a.nome}</Link>{!a.ativo && <Pilula tipo="aberto">Inativo</Pilula>}</div>)}</div>
+      {!ativos ? <Carregando /> : ativos.length === 0 ? <div className="vazio">Sem alunos.</div> : (
+        <div>{ativos.map((a) => (
+          <div key={a.id} className="resumo-linha">
+            <Link to={`/alunos/${a.id}`} onClick={onFechar}>{a.nome}</Link>
+            <Botao pequeno tipo="perigo" onClick={() => inativar(a.id)}>Inativar</Botao>
+          </div>
+        ))}</div>
       )}
       <Botao onClick={onFechar}>Fechar</Botao>
     </Modal>
