@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { get, post } from '../api';
+import { get, post, put } from '../api';
 import { useApp } from '../store';
 import { Botao, Campo, Carregando, Modal, Pilula, Topo, useDados } from '../ui';
 
@@ -8,6 +8,7 @@ export function Turmas() {
   const { base, recarregar, toast } = useApp();
   const [aberta, setAberta] = useState<number | null>(null);
   const [nova, setNova] = useState(false);
+  const [renomear, setRenomear] = useState<{ id: number; nome: string } | null>(null);
   if (!base) return <Carregando />;
   const semVaga = base.turmas.filter((t) => t.vagas && t.ocupadas >= t.vagas).length;
   return (
@@ -31,7 +32,7 @@ export function Turmas() {
                     <div className="pequeno suave">{[t.dias, t.horario].filter(Boolean).join(' · ') || 'Dias e horário não informados'} · {t.aulas_semana} aulas/semana</div>
                     <div>Ocupação <b className="num">{t.ocupadas}{t.vagas ? `/${t.vagas}` : ''}</b>{prof && <span className="suave pequeno"> · {prof.nome}</span>}</div>
                     {t.vagas ? <div className="barra"><i style={{ width: `${Math.min(100, (t.ocupadas / t.vagas) * 100)}%` }} /></div> : null}
-                    <div><button className="link" onClick={() => setAberta(t.id)}>Ver alunos</button></div>
+                    <div style={{ display: 'flex', gap: 16 }}><button className="link" onClick={() => setAberta(t.id)}>Ver alunos</button><button className="link" onClick={() => setRenomear({ id: t.id, nome: t.nome })}>Renomear</button></div>
                   </div>
                 );
               })}
@@ -40,6 +41,9 @@ export function Turmas() {
         );
       })}
       {aberta != null && <AlunosDaTurma id={aberta} nome={base.turmas.find((t) => t.id === aberta)?.nome ?? ''} onFechar={() => setAberta(null)} />}
+      {renomear && (
+        <RenomearTurma turma={renomear} onFechar={() => setRenomear(null)} onSalva={async () => { setRenomear(null); toast('Turma renomeada.'); await recarregar(); }} />
+      )}
       {nova && (
         <NovaTurma onFechar={() => setNova(false)} onSalva={async () => { setNova(false); toast('Turma criada.'); await recarregar(); }} />
       )}
@@ -55,6 +59,24 @@ function AlunosDaTurma({ id, nome, onFechar }: { id: number; nome: string; onFec
         <div>{dados.map((a) => <div key={a.id} className="resumo-linha"><Link to={`/alunos/${a.id}`} onClick={onFechar}>{a.nome}</Link>{!a.ativo && <Pilula tipo="aberto">Inativo</Pilula>}</div>)}</div>
       )}
       <Botao onClick={onFechar}>Fechar</Botao>
+    </Modal>
+  );
+}
+
+function RenomearTurma({ turma, onFechar, onSalva }: { turma: { id: number; nome: string }; onFechar: () => void; onSalva: () => void }) {
+  const { toast } = useApp();
+  const [nome, setNome] = useState(turma.nome);
+  const valido = nome.trim() !== '' && nome.trim() !== turma.nome;
+  async function salvar() {
+    if (!valido) return;
+    try { await put(`/turmas/${turma.id}`, { nome: nome.trim() }); onSalva(); } catch (e) { toast(String((e as Error).message), true); }
+  }
+  return (
+    <Modal titulo="Renomear turma" onFechar={onFechar}>
+      <form className="form" onSubmit={(e) => { e.preventDefault(); salvar(); }}>
+        <Campo rotulo="Nome"><input autoFocus value={nome} onChange={(e) => setNome(e.target.value)} /></Campo>
+      </form>
+      <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}><Botao onClick={onFechar}>Cancelar</Botao><Botao tipo="primario" onClick={salvar} desligado={!valido}>Salvar</Botao></div>
     </Modal>
   );
 }
