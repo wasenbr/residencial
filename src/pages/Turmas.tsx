@@ -66,17 +66,19 @@ function AlunosDaTurma({ id, nome, onFechar }: { id: number; nome: string; onFec
 function RenomearTurma({ turma, onFechar, onSalva }: { turma: { id: number; nome: string }; onFechar: () => void; onSalva: () => void }) {
   const { toast } = useApp();
   const [nome, setNome] = useState(turma.nome);
+  const [salvando, setSalvando] = useState(false);
   const valido = nome.trim() !== '' && nome.trim() !== turma.nome;
   async function salvar() {
-    if (!valido) return;
-    try { await put(`/turmas/${turma.id}`, { nome: nome.trim() }); onSalva(); } catch (e) { toast(String((e as Error).message), true); }
+    if (!valido || salvando) return;
+    setSalvando(true);
+    try { await put(`/turmas/${turma.id}`, { nome: nome.trim() }); onSalva(); } catch (e) { toast(String((e as Error).message), true); } finally { setSalvando(false); }
   }
   return (
     <Modal titulo="Renomear turma" onFechar={onFechar}>
       <form className="form" onSubmit={(e) => { e.preventDefault(); salvar(); }}>
         <Campo rotulo="Nome"><input autoFocus value={nome} onChange={(e) => setNome(e.target.value)} /></Campo>
       </form>
-      <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}><Botao onClick={onFechar}>Cancelar</Botao><Botao tipo="primario" onClick={salvar} desligado={!valido}>Salvar</Botao></div>
+      <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}><Botao onClick={onFechar}>Cancelar</Botao><Botao tipo="primario" onClick={salvar} desligado={!valido || salvando}>{salvando ? 'Salvando…' : 'Salvar'}</Botao></div>
     </Modal>
   );
 }
