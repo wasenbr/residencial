@@ -71,3 +71,18 @@ test('histórico separa as despesas por categoria e a soma bate com o total', as
     expect(soma).toBeCloseTo(m.despesas, 2);
   }
 });
+
+test('renomear turma grava o nome sem espaços e recusa nome vazio', async () => {
+  const mod = (await ctx.db.prepare("INSERT INTO modalidades (nome) VALUES ('Renomeio')").run()).meta.last_row_id;
+  const t = (await (await chamar('/turmas', { modalidade_id: mod, nome: 'Antiga' })).json() as { id: number }).id;
+  const renomear = (nome: unknown) =>
+    app.request(`/api/turmas/${t}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ nome }) }, { DB: ctx.db });
+  const nomeAtual = async () => ((await ctx.db.prepare('SELECT nome FROM turmas WHERE id = ?').bind(t).first()) as { nome: string }).nome;
+
+  expect((await renomear('  Nova 19:00  ')).status).toBe(200);
+  expect(await nomeAtual()).toBe('Nova 19:00');
+
+  expect((await renomear('   ')).status).toBe(400);
+  expect((await renomear(null)).status).toBe(400);
+  expect(await nomeAtual()).toBe('Nova 19:00');
+});
