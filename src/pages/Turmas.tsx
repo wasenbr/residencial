@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { get, post } from '../api';
+import { get, post, put } from '../api';
+import type { Turma } from '../shared/tipos';
 import { useApp } from '../store';
 import { Botao, Campo, Carregando, Modal, Pilula, Topo, useDados } from '../ui';
 
@@ -8,15 +9,29 @@ export function Turmas() {
   const { base, recarregar, toast } = useApp();
   const [aberta, setAberta] = useState<number | null>(null);
   const [nova, setNova] = useState(false);
+  const [verInativas, setVerInativas] = useState(false);
+  const { dados: inativas, recarregar: atualizarInativas } = useDados(() => get<(Turma & { ocupadas: number })[]>('/turmas/inativas'), []);
   if (!base) return <Carregando />;
   const semVaga = base.turmas.filter((t) => t.vagas && t.ocupadas >= t.vagas).length;
+  const lista = verInativas ? [...base.turmas, ...(inativas ?? [])] : base.turmas;
+
+  async function alternar(t: Turma) {
+    try {
+      await put(`/turmas/${t.id}`, { ativo: t.ativo ? 0 : 1 });
+      toast(t.ativo ? 'Turma inativada.' : 'Turma reativada.');
+      atualizarInativas();
+      await recarregar();
+    } catch (e) { toast(String((e as Error).message), true); }
+  }
+
   return (
     <>
       <Topo titulo="Turmas" sub={`${base.turmas.length} turmas em ${base.modalidades.length} modalidades${semVaga ? ` · ${semVaga} sem vaga` : ''}`}>
+        <Botao onClick={() => setVerInativas(!verInativas)}>{verInativas ? 'Ocultar inativas' : `Ver inativas${inativas?.length ? ` · ${inativas.length}` : ''}`}</Botao>
         <Botao tipo="primario" onClick={() => setNova(true)}>Nova turma</Botao>
       </Topo>
       {base.modalidades.map((m) => {
-        const ts = base.turmas.filter((t) => t.modalidade_id === m.id);
+        const ts = lista.filter((t) => t.modalidade_id === m.id);
         if (!ts.length) return null;
         return (
           <section key={m.id} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -27,11 +42,14 @@ export function Turmas() {
                 const prof = base.professores.find((p) => p.id === t.professor_id);
                 return (
                   <div key={t.id} className="cartao pad" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}><b>{t.nome}</b>{cheia && <Pilula tipo="atraso">Sem vaga</Pilula>}</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}><b>{t.nome}</b>{!t.ativo ? <Pilula tipo="aberto">Inativa</Pilula> : cheia && <Pilula tipo="atraso">Sem vaga</Pilula>}</div>
                     <div className="pequeno suave">{[t.dias, t.horario].filter(Boolean).join(' · ') || 'Dias e horário não informados'} · {t.aulas_semana} aulas/semana</div>
                     <div>Ocupação <b className="num">{t.ocupadas}{t.vagas ? `/${t.vagas}` : ''}</b>{prof && <span className="suave pequeno"> · {prof.nome}</span>}</div>
                     {t.vagas ? <div className="barra"><i style={{ width: `${Math.min(100, (t.ocupadas / t.vagas) * 100)}%` }} /></div> : null}
-                    <div><button className="link" onClick={() => setAberta(t.id)}>Ver alunos</button></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                      <button className="link" onClick={() => setAberta(t.id)}>Ver alunos</button>
+                      <Botao pequeno tipo={t.ativo ? 'perigo' : 'padrao'} onClick={() => alternar(t)}>{t.ativo ? 'Inativar' : 'Reativar'}</Botao>
+                    </div>
                   </div>
                 );
               })}

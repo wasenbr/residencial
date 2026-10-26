@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { get, post } from '../api';
+import { get, post, put } from '../api';
 import { parecidos } from '../shared/nomes';
 import type { Aluno, Contrato } from '../shared/tipos';
 import { useApp } from '../store';
@@ -50,6 +50,15 @@ export function Alunos() {
     try { await post('/alunos/unificar', { destino, origem }); toast('Cadastros unificados.'); atualizar(); await recarregar(); } catch (e) { toast(String((e as Error).message), true); }
   }
 
+  async function alternar(a: Linha) {
+    try {
+      await put(`/alunos/${a.id}`, { ativo: a.ativo ? 0 : 1 });
+      toast(a.ativo ? 'Aluno inativado.' : 'Aluno reativado.');
+      atualizar();
+      await recarregar();
+    } catch (e) { toast(String((e as Error).message), true); }
+  }
+
   const fichas: [Filtro, string][] = [['ativos', 'Ativos'], ['particulares', 'Particulares'], ['gympass', 'Gympass'], ['criancas', 'Crianças'], ['inativos', 'Inativos']];
   return (
     <>
@@ -73,7 +82,7 @@ export function Alunos() {
       </div>
       <section className="cartao tabela-wrap">
         <table className="tbl">
-          <thead><tr><th>Aluno</th><th>Turmas</th><th className="esconde-cel">Contrato</th><th className="esconde-cel">Origem</th><th>{nomeComp(comp, true)}</th></tr></thead>
+          <thead><tr><th>Aluno</th><th>Turmas</th><th className="esconde-cel">Contrato</th><th className="esconde-cel">Origem</th><th>{nomeComp(comp, true)}</th><th></th></tr></thead>
           <tbody>
             {lista.map((a) => {
               const aberto = a.devido - a.pago;
@@ -85,6 +94,9 @@ export function Alunos() {
                   <td className="esconde-cel">{a.contrato ? `${a.contrato.plano}${mesContrato ? ` · mês ${mesContrato} de ${a.contrato.meses}` : ''}` : 'Mensal'}</td>
                   <td className="esconde-cel">{a.origem === 'gympass' ? 'Gympass' : 'Particular'}</td>
                   <td>{a.devido === 0 ? <span className="suave">—</span> : aberto > 0.009 ? (a.pago > 0 ? <Pilula tipo="atraso">Saldo <Num v={aberto} /></Pilula> : <Pilula tipo="atraso">Em aberto</Pilula>) : <Pilula tipo="ok">Pago</Pilula>}</td>
+                  <td onClick={(e) => e.stopPropagation()} style={{ textAlign: 'right' }}>
+                    <Botao pequeno tipo={a.ativo ? 'perigo' : 'padrao'} onClick={() => alternar(a)}>{a.ativo ? 'Inativar' : 'Reativar'}</Botao>
+                  </td>
                 </tr>
               );
             })}
