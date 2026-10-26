@@ -343,6 +343,11 @@ export function criarApp() {
     if (sets.length) await c.env.DB.prepare(`UPDATE turmas SET ${sets.join(', ')} WHERE id = ?`).bind(...vals, Number(c.req.param('id'))).run();
     return c.json({ ok: true });
   });
+  app.get('/turmas/inativas', async (c) => {
+    const r = await c.env.DB.prepare(`SELECT t.*, (SELECT COUNT(*) FROM matriculas m JOIN alunos a ON a.id = m.aluno_id WHERE m.turma_id = t.id AND a.ativo = 1) AS ocupadas
+      FROM turmas t WHERE t.ativo = 0 ORDER BY t.modalidade_id, t.horario, t.nome`).all();
+    return c.json(r.results);
+  });
   app.get('/turmas/:id/alunos', async (c) => {
     const r = await c.env.DB.prepare('SELECT a.id, a.nome, a.ativo FROM matriculas m JOIN alunos a ON a.id = m.aluno_id WHERE m.turma_id = ? ORDER BY a.nome COLLATE NOCASE').bind(Number(c.req.param('id'))).all();
     return c.json(r.results);
