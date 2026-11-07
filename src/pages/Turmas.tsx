@@ -3,7 +3,9 @@ import { Link } from 'react-router-dom';
 import { get, post, put } from '../api';
 import type { Turma } from '../shared/tipos';
 import { useApp } from '../store';
-import { Botao, Campo, Carregando, Modal, Pilula, Topo, useDados } from '../ui';
+import { Botao, Campo, Carregando, Modal, Num, Pilula, Topo, diaMes, useDados } from '../ui';
+import { BotaoCobrar } from '../components/Cobranca';
+import { nomeComp } from '../shared/comp';
 
 export function Turmas() {
   const { base, recarregar, toast } = useApp();
@@ -72,9 +74,24 @@ export function Turmas() {
   );
 }
 
+interface AlunoTurma {
+  id: number; nome: string; ativo: number; recorrente: number; telefone: string | null; responsavel: string | null; responsavel_tel: string | null;
+  devido: number; pago: number; vencimento: string | null; qtd: number;
+}
+
+function StatusPagamento({ a, hoje }: { a: AlunoTurma; hoje: string }) {
+  if (!a.qtd) return <Pilula tipo="info">Sem mensalidade</Pilula>;
+  const falta = a.devido - a.pago;
+  if (falta <= 0.009) return <Pilula tipo="ok">Pago</Pilula>;
+  if (a.pago > 0) return <Pilula tipo="atraso">Falta <Num v={falta} /></Pilula>;
+  if (a.vencimento && a.vencimento < hoje) return <Pilula tipo="atraso">Venceu {diaMes(a.vencimento)}</Pilula>;
+  return <Pilula tipo="aberto">A vencer</Pilula>;
+}
+
 function AlunosDaTurma({ id, nome, onFechar }: { id: number; nome: string; onFechar: () => void }) {
-  const { toast, recarregar } = useApp();
-  const { dados, recarregar: atualizar } = useDados(() => get<{ id: number; nome: string; ativo: number }[]>(`/turmas/${id}/alunos`), [id]);
+  const { toast, recarregar, comp, base } = useApp();
+  const hoje = base?.hoje ?? '';
+  const { dados, recarregar: atualizar } = useDados(() => get<AlunoTurma[]>(`/turmas/${id}/alunos?comp=${comp}`), [id, comp]);
   const [vistos, setVistos] = useState<number[] | null>(null);
   const [confirmando, setConfirmando] = useState<number | null>(null);
   useEffect(() => {
@@ -92,14 +109,25 @@ function AlunosDaTurma({ id, nome, onFechar }: { id: number; nome: string; onFec
     } catch (e) { toast(String((e as Error).message), true); }
   }
   return (
-    <Modal titulo={nome} onFechar={onFechar}>
+    <Modal titulo={nome} onFechar={onFechar} largo>
+      {lista && lista.length > 0 && (() => {
+        const ativos = lista.filter((a) => a.ativo);
+        const pagos = ativos.filter((a) => a.qtd && a.devido - a.pago <= 0.009).length;
+        const abertos = ativos.filter((a) => a.qtd && a.devido - a.pago > 0.009).length;
+        return <div className="pequeno suave" style={{ marginTop: -8 }}>Pagamento de {nomeComp(comp).toLowerCase()}: {pagos} de {ativos.length} pagos{abertos ? ` · ${abertos} em aberto` : ''}</div>;
+      })()}
       {!lista ? <Carregando /> : lista.length === 0 ? <div className="vazio">Sem alunos.</div> : (
         <div>{lista.map((a) => (
           <div key={a.id} className="resumo-linha">
             <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <Link to={`/alunos/${a.id}`} onClick={onFechar} style={a.ativo ? undefined : { opacity: 0.5 }}>{a.nome}</Link>
-              {!a.ativo && <Pilula tipo="aberto">Inativo</Pilula>}
+              {!a.ativo ? <Pilula tipo="aberto">Inativo</Pilula> : <StatusPagamento a={a} hoje={hoje} />}
+              {!!a.ativo && !!a.recorrente && <span className="pequeno suave">recorrente</span>}
             </span>
+            <span className="acoes-linha">
+            {!!a.ativo && !a.recorrente && a.qtd > 0 && a.pago < a.devido - 0.009 && a.vencimento && a.vencimento < hoje && (
+              <BotaoCobrar aluno={a} competencia={comp} valor={Math.round((a.devido - a.pago) * 100) / 100} vencimento={a.vencimento} />
+            )}
             {!a.ativo ? <Botao pequeno onClick={() => alternar(a.id, 1)}>Reativar</Botao>
               : confirmando === a.id ? (
                 <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -108,6 +136,7 @@ function AlunosDaTurma({ id, nome, onFechar }: { id: number; nome: string; onFec
                   <Botao pequeno tipo="perigo" onClick={() => alternar(a.id, 0)}>Sim, inativar</Botao>
                 </span>
               ) : <Botao pequeno tipo="perigo" onClick={() => setConfirmando(a.id)}>Inativar</Botao>}
+            </span>
           </div>
         ))}</div>
       )}

@@ -26,7 +26,7 @@ export function Campo({ rotulo, children }: { rotulo: string; children: ReactNod
   return <label className="campo">{rotulo}{children}</label>;
 }
 
-export function Modal({ titulo, onFechar, children }: { titulo: string; onFechar: () => void; children: ReactNode }) {
+export function Modal({ titulo, onFechar, children, largo }: { titulo: string; onFechar: () => void; children: ReactNode; largo?: boolean }) {
   useEffect(() => {
     const h = (e: KeyboardEvent) => e.key === 'Escape' && onFechar();
     window.addEventListener('keydown', h);
@@ -34,7 +34,7 @@ export function Modal({ titulo, onFechar, children }: { titulo: string; onFechar
   }, [onFechar]);
   return (
     <div className="fundo-modal" onMouseDown={(e) => e.target === e.currentTarget && onFechar()}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label={titulo}>
+      <div className={"modal" + (largo ? " larga" : "")} role="dialog" aria-modal="true" aria-label={titulo}>
         <h2 style={{ fontSize: 20 }}>{titulo}</h2>
         {children}
       </div>
