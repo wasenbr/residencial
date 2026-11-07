@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { del, get, post, put } from '../api';
-import { nomeComp, diffMeses } from '../shared/comp';
+import { nomeComp, diffMeses, somarMeses } from '../shared/comp';
 import type { Aluno, Contrato, Turma } from '../shared/tipos';
 import { useApp } from '../store';
 import { Botao, Campo, Carregando, FORMA_ROTULO, Modal, Num, Pilula, Topo, useDados } from '../ui';
@@ -27,6 +27,7 @@ export function AlunoFicha() {
   const [perguntaInativar, setPerguntaInativar] = useState(false);
   const [alterar, setAlterar] = useState<MensalidadeEditavel | null>(null);
   const [lancar, setLancar] = useState(false);
+  const [trocarPlano, setTrocarPlano] = useState(false);
   if (!dados) return <Carregando erro={erro} />;
   const { aluno, turmas, contratos, mensalidades, familia } = dados;
   const contrato = contratos.find((c) => !c.encerrado_em) ?? null;
@@ -60,13 +61,14 @@ export function AlunoFicha() {
           <Linha r={`Mensalidade de ${nomeComp(comp, true).toLowerCase()}`} v={doMes.length ? <Num v={devidoMes} /> : '—'} />
           <Linha r="Cobrança" v={aluno.recorrente ? 'Cartão recorrente (cai sozinho)' : 'Manual'} />
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '8px 0 12px' }}>
+            <Botao pequeno tipo="primario" onClick={() => setTrocarPlano(true)}>Trocar plano</Botao>
             {doMes.length === 1 && <Botao pequeno onClick={() => setAlterar(editavel(doMes[0]))}>Alterar valor</Botao>}
             {doMes.length > 1 && <span className="pequeno suave">Para alterar, use “Alterar” em cada linha de Pagamentos.</span>}
             {doMes.length === 0 && aluno.origem === 'particular' && <Botao pequeno onClick={() => setLancar(true)}>Lançar mensalidade de {nomeComp(comp, true).toLowerCase()}</Botao>}
           </div>
           {contrato ? (
             <>
-              <Linha r="Plano" v={`${contrato.plano} · ${contrato.periodo}`} />
+              <Linha r="Plano" v={contrato.plano.toLowerCase() === contrato.periodo ? contrato.plano : `${contrato.plano} · ${contrato.periodo}`} />
               <Linha r="Valor do contrato" v={<Num v={contrato.valor_mensal} />} />
               <Linha r="Início" v={nomeComp(contrato.inicio)} />
               {mesDoContrato && contrato.meses && <Linha r="Mês" v={`${Math.min(mesDoContrato, contrato.meses)} de ${contrato.meses}${mesDoContrato >= contrato.meses ? ' · termina neste mês' : ''}`} />}
@@ -129,6 +131,7 @@ export function AlunoFicha() {
       </section>
 
       {alterar && <AlterarValorModal item={alterar} onFechar={() => setAlterar(null)} onSalvo={() => { setAlterar(null); atualizar(); }} />}
+      {trocarPlano && <TrocarPlano aluno={aluno} atual={contrato} valorAtual={devidoMes || contrato?.valor_mensal || 0} onFechar={() => setTrocarPlano(false)} onSalvo={() => { setTrocarPlano(false); atualizar(); }} />}
       {lancar && <LancarMensalidade alunoId={aluno.id} nome={aluno.nome} sugestao={contrato?.valor_mensal ?? mensalidades.find((m) => !m.cancelada)?.valor ?? 0} onFechar={() => setLancar(false)} onSalvo={() => { setLancar(false); atualizar(); void recarregar(); }} />}
       {pagar && <PagarModal item={pagar} onFechar={() => setPagar(null)} onPago={() => { setPagar(null); atualizar(); }} />}
       {editando && <EditarAluno aluno={aluno} onFechar={() => setEditando(false)} onSalvo={() => { setEditando(false); atualizar(); void recarregar(); }} />}
@@ -216,6 +219,90 @@ function LancarMensalidade({ alunoId, nome, sugestao, onFechar, onSalvo }: { alu
       <Campo rotulo="Valor (R$)"><input inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value)} autoFocus /></Campo>
       <div className="suave pequeno">Daqui em diante, os meses novos copiam este valor.</div>
       <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}><Botao onClick={onFechar}>Cancelar</Botao><Botao tipo="primario" onClick={salvar} desligado={!(v > 0)}>Lançar</Botao></div>
+    </Modal>
+  );
+}
+
+type Periodo = 'mensal' | 'semestral' | 'anual';
+const MESES_PERIODO: Record<Periodo, number | null> = { mensal: null, semestral: 6, anual: 12 };
+
+function TrocarPlano({ aluno, atual, valorAtual, onFechar, onSalvo }: { aluno: Aluno; atual: Contrato | null; valorAtual: number; onFechar: () => void; onSalvo: () => void }) {
+  const { base, comp, toast, recarregar } = useApp();
+  const meses = [...new Set([...(base?.competencias ?? []), comp])].filter((c) => !base?.fechados.includes(c)).sort();
+  const [periodo, setPeriodo] = useState<Periodo>(atual?.periodo === 'semestral' ? 'anual' : atual?.periodo === 'anual' ? 'mensal' : 'anual');
+  const [planoId, setPlanoId] = useState<number | 'manual'>('manual');
+  const [valor, setValor] = useState(valorAtual ? String(valorAtual).replace('.', ',') : '');
+  const [inicio, setInicio] = useState(meses.includes(comp) ? comp : meses[meses.length - 1] ?? comp);
+  const [particular, setParticular] = useState(true);
+  const [salvando, setSalvando] = useState(false);
+  const planos = base?.planos.filter((p) => p.periodo === periodo) ?? [];
+  const v = Number(valor.replace(',', '.'));
+  const n = MESES_PERIODO[periodo];
+
+  function escolherPeriodo(p: Periodo) { setPeriodo(p); setPlanoId('manual'); }
+  function escolherPlano(id: number | 'manual') {
+    setPlanoId(id);
+    const p = base?.planos.find((x) => x.id === id);
+    if (p) setValor(String(p.valor).replace('.', ','));
+  }
+  async function salvar() {
+    setSalvando(true);
+    try {
+      const plano = base?.planos.find((p) => p.id === planoId);
+      await post(`/alunos/${aluno.id}/plano`, { periodo, valor: v, inicio, plano: plano?.nome, particular: aluno.origem === 'gympass' && particular });
+      toast('Plano trocado.');
+      await recarregar();
+      onSalvo();
+    } catch (e) { toast(e instanceof Error ? e.message : 'Erro', true); } finally { setSalvando(false); }
+  }
+
+  return (
+    <Modal titulo="Trocar plano" onFechar={onFechar}>
+      <div className="suave pequeno">{aluno.nome} · hoje: {atual ? `${atual.plano} (${atual.periodo})` : 'mensal, sem contrato'}</div>
+      <div>
+        <div className="campo" style={{ marginBottom: 8 }}>Novo plano</div>
+        <div className="fichas" role="radiogroup" aria-label="Período">
+          {(['mensal', 'semestral', 'anual'] as const).map((p) => (
+            <button key={p} type="button" role="radio" aria-checked={periodo === p} className={'ficha' + (periodo === p ? ' ativa' : '')} onClick={() => escolherPeriodo(p)}>
+              {p === 'mensal' ? 'Mensal' : p === 'semestral' ? 'Semestral (6 meses)' : 'Anual (12 meses)'}
+            </button>
+          ))}
+        </div>
+      </div>
+      {planos.length > 0 && (
+        <Campo rotulo="Plano cadastrado">
+          <select value={planoId} onChange={(e) => escolherPlano(e.target.value === 'manual' ? 'manual' : Number(e.target.value))}>
+            <option value="manual">Valor combinado</option>
+            {planos.map((p) => <option key={p.id} value={p.id}>{p.nome} · R$ {p.valor}</option>)}
+          </select>
+        </Campo>
+      )}
+      <div className="linha-campos">
+        <Campo rotulo="Valor por mês (R$)"><input inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value)} /></Campo>
+        <Campo rotulo="A partir de">
+          <select value={inicio} onChange={(e) => setInicio(e.target.value)}>
+            {meses.map((c) => <option key={c} value={c}>{nomeComp(c)}</option>)}
+          </select>
+        </Campo>
+      </div>
+      {aluno.origem === 'gympass' && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 44 }}>
+          <input type="checkbox" checked={particular} onChange={(e) => setParticular(e.target.checked)} style={{ width: 20, height: 20 }} />
+          Deixa de ser Gympass e passa a particular
+        </label>
+      )}
+      <div className="cartao pad pequeno" style={{ background: 'var(--marca-clara)', border: 0 }}>
+        {v > 0 ? (n
+          ? <>Mensalidade de <b><Num v={v} /></b> por mês, de {nomeComp(inicio)} a {nomeComp(somarMeses(inicio, n - 1))} ({n} meses, total <Num v={v * n} />). No fim, a ficha avisa para renovar.</>
+          : <>Mensalidade de <b><Num v={v} /></b> por mês a partir de {nomeComp(inicio)}, sem prazo.</>)
+          : 'Informe o valor por mês.'}
+        {atual && <> O contrato atual ({atual.plano}) é encerrado.</>}
+        <div className="suave" style={{ marginTop: 6 }}>Pagamentos já feitos continuam valendo. A forma de pagamento (dinheiro, Pix, cartão) é escolhida a cada pagamento.</div>
+      </div>
+      <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+        <Botao onClick={onFechar}>Cancelar</Botao>
+        <Botao tipo="primario" onClick={salvar} desligado={!(v > 0) || !inicio || salvando}>Trocar plano</Botao>
+      </div>
     </Modal>
   );
 }
