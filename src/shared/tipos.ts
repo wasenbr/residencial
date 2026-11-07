@@ -18,6 +18,7 @@ export interface Config {
   gympass_2x: number;
   gympass_3x: number;
   gympass_5x: number;
+  msg_cobranca: string;
 }
 
 export interface Modalidade { id: number; nome: string; ordem: number }
@@ -41,7 +42,7 @@ export interface Plano {
 export interface Aluno {
   id: number; nome: string; chave: string | null; telefone: string | null; nascimento: string | null;
   responsavel: string | null; responsavel_tel: string | null; familia: string | null;
-  origem: 'particular' | 'gympass'; ativo: number; observacoes: string | null; criado_em: string;
+  origem: 'particular' | 'gympass'; ativo: number; recorrente: number; observacoes: string | null; criado_em: string;
 }
 
 export interface Matricula { id: number; aluno_id: number; turma_id: number; inicio: string | null }
