@@ -60,10 +60,11 @@ export function Painel() {
             <button key={m.id ?? 'x'} type="button" className="modalidade-link" onClick={() => setModAberta(m)} title={`Ver mensalidades de ${m.nome}`}>
               <span style={{ display: 'flex', justifyContent: 'space-between' }}><span>{m.nome} ›</span><Num v={m.faturamento} /></span>
               <span className="barra"><i style={{ width: `${(m.faturamento / (r.faturamento || 1)) * 100}%` }} /></span>
-              <span className="pequeno suave" style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <span>Pago <Num v={m.recebido} /></span>
-                <span style={m.aberto > 0.009 ? { color: 'var(--atraso)' } : undefined}>Não pago <Num v={m.aberto} /></span>
-              </span>
+              {m.aberto > 0.009 && (
+                <span className="pequeno" style={{ display: 'flex', justifyContent: 'flex-end', color: '#C62828', fontWeight: 600 }}>
+                  <span>Não pago <Num v={m.aberto} /></span>
+                </span>
+              )}
             </button>
           ))}
           {r.porModalidade.length === 0 && <div className="suave">Sem dados neste mês.</div>}

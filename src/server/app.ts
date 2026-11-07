@@ -280,6 +280,58 @@ export function criarApp() {
     return c.json({ ok: true });
   });
 
+  // Troca o plano do aluno a partir de uma competência: encerra o contrato atual,
+  // cria o novo (semestral/anual) e ajusta as mensalidades desse mês em diante.
+  app.post('/alunos/:id/plano', async (c) => {
+    const db = c.env.DB;
+    const id = Number(c.req.param('id'));
+    const b = await c.req.json<{ plano?: string; periodo: 'mensal' | 'semestral' | 'anual'; valor: number; inicio: string; particular?: boolean }>();
+    if (!['mensal', 'semestral', 'anual'].includes(b.periodo)) throw new Erro(400, 'Período inválido.');
+    if (!(b.valor > 0)) throw new Erro(400, 'Informe o valor mensal.');
+    if (!validaComp(b.inicio)) throw new Erro(400, 'Informe o mês de início (AAAA-MM).');
+    const aluno = await db.prepare('SELECT id FROM alunos WHERE id = ?').bind(id).first();
+    if (!aluno) throw new Erro(404, 'Aluno não encontrado.');
+    await exigeAberto(db, b.inicio);
+    // O mês precisa já existir: os meses novos são copiados do anterior, já com o plano novo.
+    const existe = await db.prepare('SELECT 1 AS x FROM mensalidades WHERE competencia = ? LIMIT 1').bind(b.inicio).first();
+    if (!existe) throw new Erro(409, 'Este mês ainda não foi gerado. Gere o mês no Dashboard antes de trocar o plano a partir dele.');
+    const plano = b.plano?.trim() || (b.periodo === 'mensal' ? null : b.periodo === 'anual' ? 'Anual' : 'Semestral');
+
+    await db.prepare('UPDATE contratos SET encerrado_em = ? WHERE aluno_id = ? AND encerrado_em IS NULL').bind(hoje(), id).run();
+    let contratoId: number | null = null;
+    if (b.periodo !== 'mensal') {
+      const r = await db.prepare('INSERT INTO contratos (aluno_id, plano, periodo, valor_mensal, inicio, meses) VALUES (?,?,?,?,?,?)')
+        .bind(id, plano, b.periodo, b.valor, b.inicio, b.periodo === 'semestral' ? 6 : 12).run();
+      contratoId = r.meta.last_row_id;
+    }
+    if (b.particular) await db.prepare("UPDATE alunos SET origem = 'particular' WHERE id = ?").bind(id).run();
+
+    // Mensalidades do início em diante (meses abertos): a primeira de cada mês recebe o plano novo;
+    // as demais do mesmo mês sem pagamento são canceladas, para não cobrar em dobro.
+    const mens = (await db.prepare(`
+      SELECT m.id, m.competencia, COALESCE((SELECT SUM(valor) FROM pagamentos WHERE mensalidade_id = m.id), 0) AS pago
+      FROM mensalidades m WHERE m.aluno_id = ? AND m.competencia >= ? AND m.cancelada = 0
+        AND m.competencia NOT IN (SELECT competencia FROM fechamentos)
+      ORDER BY m.competencia, m.id`).bind(id, b.inicio).all()).results as { id: number; competencia: string; pago: number }[];
+    const st: D1PreparedStatement[] = [];
+    const vistos = new Set<string>();
+    for (const m of mens) {
+      if (!vistos.has(m.competencia)) {
+        vistos.add(m.competencia);
+        st.push(db.prepare('UPDATE mensalidades SET valor = ?, contrato_id = ?, descricao = ? WHERE id = ?').bind(b.valor, contratoId, plano, m.id));
+      } else if (m.pago <= 0) {
+        st.push(db.prepare('UPDATE mensalidades SET cancelada = 1 WHERE id = ?').bind(m.id));
+      }
+    }
+    if (!vistos.has(b.inicio)) {
+      const cfg = await carregarConfig(db);
+      st.push(db.prepare('INSERT INTO mensalidades (aluno_id, contrato_id, competencia, descricao, valor, vencimento) VALUES (?,?,?,?,?,?)')
+        .bind(id, contratoId, b.inicio, plano, b.valor, `${b.inicio}-${String(cfg.dia_vencimento).padStart(2, '0')}`));
+    }
+    if (st.length) await db.batch(st);
+    return c.json({ ok: true, contratoId });
+  });
+
   app.post('/alunos/:id/turmas', async (c) => {
     const { turma_id } = await c.req.json<{ turma_id: number }>();
     await c.env.DB.prepare('INSERT OR IGNORE INTO matriculas (aluno_id, turma_id, inicio) VALUES (?,?,?)').bind(Number(c.req.param('id')), turma_id, compAtual()).run();
