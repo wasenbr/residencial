@@ -7,7 +7,7 @@ import { useApp } from '../store';
 import { Botao, Campo, Carregando, FORMA_ROTULO, Modal, Num, Pilula, Topo, useDados } from '../ui';
 import { PagarModal, type Devendo } from '../components/Pagar';
 import { AdiantadoModal, TrocarPlanoModal } from '../components/Adiantado';
-import { AlterarValorModal, type MensalidadeEditavel } from '../components/Cobranca';
+import { AlterarValorModal, DividirModal, type MensalidadeEditavel } from '../components/Cobranca';
 
 interface Ficha {
   aluno: Aluno;
@@ -30,6 +30,7 @@ export function AlunoFicha() {
   const [alterar, setAlterar] = useState<MensalidadeEditavel | null>(null);
   const [lancar, setLancar] = useState(false);
   const [trocarPlano, setTrocarPlano] = useState(false);
+  const [dividir, setDividir] = useState(false);
   if (!dados) return <Carregando erro={erro} />;
   const { aluno, turmas, contratos, mensalidades, familia } = dados;
   const contrato = contratos.find((c) => !c.encerrado_em) ?? null;
@@ -73,6 +74,7 @@ export function AlunoFicha() {
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '8px 0 12px' }}>
             <Botao pequeno tipo="primario" onClick={() => setTrocarPlano(true)}>Trocar plano</Botao>
             {doMes.length === 1 && <Botao pequeno onClick={() => setAlterar(editavel(doMes[0]))}>Alterar valor</Botao>}
+            {doMes.length === 1 && aluno.origem === 'particular' && doMes[0].pago === 0 && <Botao pequeno onClick={() => setDividir(true)}>Dividir por modalidade</Botao>}
             {doMes.length > 1 && <span className="pequeno suave">Para alterar, use “Alterar” em cada linha de Pagamentos.</span>}
             {doMes.length === 0 && aluno.origem === 'particular' && <Botao pequeno onClick={() => setLancar(true)}>Lançar mensalidade de {nomeComp(comp, true).toLowerCase()}</Botao>}
           </div>
@@ -151,6 +153,10 @@ export function AlunoFicha() {
       {trocarPlano && (
         <TrocarPlanoModal aluno={aluno} aulasSemana={aulas} valorAtual={valorRecente} contratoAtual={contrato} inicioSugerido={comp}
           onFechar={() => setTrocarPlano(false)} onSalvo={() => { setTrocarPlano(false); atualizar(); void recarregar(); }} />
+      )}
+      {dividir && doMes.length === 1 && (
+        <DividirModal alunoId={aluno.id} nome={aluno.nome} competencia={comp} total={doMes[0].valor} modalidadeIds={[...new Set(turmas.map((t) => t.modalidade_id))]}
+          onFechar={() => setDividir(false)} onSalvo={() => { setDividir(false); atualizar(); }} />
       )}
       {alterar && <AlterarValorModal item={alterar} onFechar={() => setAlterar(null)} onSalvo={() => { setAlterar(null); atualizar(); }} />}
       {lancar && <LancarMensalidade alunoId={aluno.id} nome={aluno.nome} sugestao={contrato?.valor_mensal ?? mensalidades.find((m) => !m.cancelada)?.valor ?? 0} onFechar={() => setLancar(false)} onSalvo={() => { setLancar(false); atualizar(); void recarregar(); }} />}
