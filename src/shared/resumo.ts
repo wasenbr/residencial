@@ -26,7 +26,10 @@ export interface DadosResumo {
 }
 
 export interface LinhaModalidade {
-  id: number | null; nome: string; matriculas: number; faturamento: number; recebido: number; aberto: number;
+  id: number | null; nome: string; matriculas: number;
+  /** Alunos com mensalidade no mês nesta modalidade (cada aluno conta uma vez). */
+  alunos: number;
+  faturamento: number; recebido: number; aberto: number;
 }
 
 export interface Atraso {
@@ -111,9 +114,10 @@ export function calcularResumo(d: DadosResumo): Resumo {
   for (const p of d.pagamentos) pagosPorMens.set(p.mensalidade_id, (pagosPorMens.get(p.mensalidade_id) ?? 0) + p.valor);
 
   const linhas = new Map<number | null, LinhaModalidade>();
+  const alunosPorModalidade = new Map<number | null, Set<number>>();
   const linha = (id: number | null) => {
     if (!linhas.has(id)) {
-      linhas.set(id, { id, nome: id == null ? 'Sem modalidade' : modNome.get(id) ?? '?', matriculas: 0, faturamento: 0, recebido: 0, aberto: 0 });
+      linhas.set(id, { id, nome: id == null ? 'Sem modalidade' : modNome.get(id) ?? '?', matriculas: 0, alunos: 0, faturamento: 0, recebido: 0, aberto: 0 });
     }
     return linhas.get(id)!;
   };
@@ -132,6 +136,8 @@ export function calcularResumo(d: DadosResumo): Resumo {
     for (const [mod, frac] of partes) {
       const l = linha(mod);
       l.matriculas += frac;
+      if (!alunosPorModalidade.has(mod)) alunosPorModalidade.set(mod, new Set());
+      alunosPorModalidade.get(mod)!.add(m.aluno_id);
       l.faturamento += m.valor * frac;
       l.recebido += pago * frac;
       l.aberto += falta * frac;
@@ -229,7 +235,7 @@ export function calcularResumo(d: DadosResumo): Resumo {
 
   const porModalidade = [...linhas.values()]
     .filter((l) => l.faturamento > 0 || l.matriculas > 0)
-    .map((l) => ({ ...l, matriculas: Math.round(l.matriculas * 10) / 10, faturamento: r2(l.faturamento), recebido: r2(l.recebido), aberto: r2(l.aberto) }))
+    .map((l) => ({ ...l, alunos: alunosPorModalidade.get(l.id)?.size ?? 0, matriculas: Math.round(l.matriculas * 10) / 10, faturamento: r2(l.faturamento), recebido: r2(l.recebido), aberto: r2(l.aberto) }))
     .sort((a, b) => b.faturamento - a.faturamento);
 
   return {

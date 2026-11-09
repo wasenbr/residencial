@@ -53,7 +53,7 @@ export function Painel() {
           <h2>Faturamento por modalidade</h2>
           {r.porModalidade.map((m) => (
             <div key={m.id ?? 'x'} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>{m.nome}</span><Num v={m.faturamento} /></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}><span>{m.nome} <span className="suave pequeno">· {m.alunos} {m.alunos === 1 ? 'aluno' : 'alunos'}</span></span><Num v={m.faturamento} /></div>
               <div className="barra"><i style={{ width: `${(m.faturamento / (r.faturamento || 1)) * 100}%` }} /></div>
             </div>
           ))}
