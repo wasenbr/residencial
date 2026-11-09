@@ -3,13 +3,17 @@ import { Link } from 'react-router-dom';
 import { get, post } from '../api';
 import type { Contrato } from '../shared/tipos';
 import { nomeComp } from '../shared/comp';
-import type { Resumo } from '../shared/resumo';
+import type { Atraso, LinhaModalidade, Resumo } from '../shared/resumo';
 import { useApp } from '../store';
-import { Botao, Carregando, Icone, Num, Pilula, SeletorMes, Topo, useDados, useLargura, diaMes } from '../ui';
+import { Botao, Carregando, Icone, Modal, Num, Pilula, SeletorMes, Topo, useDados, useLargura, diaMes } from '../ui';
+import { BotaoCobrar } from '../components/Cobranca';
+import { status } from './Mensalidades';
 import { PagarModal, type Devendo } from '../components/Pagar';
 
 type Contrato2 = Contrato & { nome: string; mes: number };
-type ResumoMes = Resumo & { fechadoEm: string | null };
+interface Contato { telefone: string | null; responsavel: string | null; responsavel_tel: string | null; recorrente: number }
+type AtrasoContato = Atraso & Contato;
+type ResumoMes = Omit<Resumo, 'atrasos' | 'emAberto'> & { atrasos: AtrasoContato[]; emAberto: AtrasoContato[]; fechadoEm: string | null };
 
 export function Dashboard() {
   const estreito = useLargura();
@@ -26,6 +30,7 @@ export function Painel() {
   const { dados: r, erro, recarregar } = usarResumo();
   const { dados: contratos } = useDados(() => get<Contrato2[]>(`/contratos/vencendo?comp=${comp}`), [comp]);
   const [pagar, setPagar] = useState<Devendo | null>(null);
+  const [modAberta, setModAberta] = useState<LinhaModalidade | null>(null);
   if (!r) return <Carregando erro={erro} />;
   const pct = r.faturamento ? Math.round((r.recebido / r.faturamento) * 100) : 0;
   const total = r.formas.dinheiroPix + r.formas.credito + r.formas.gympass + r.formas.debito || 1;
@@ -52,10 +57,15 @@ export function Painel() {
         <section className="cartao pad" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <h2>Faturamento por modalidade</h2>
           {r.porModalidade.map((m) => (
-            <div key={m.id ?? 'x'} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}><span>{m.nome} <span className="suave pequeno">· {m.alunos} {m.alunos === 1 ? 'aluno' : 'alunos'}</span></span><Num v={m.faturamento} /></div>
-              <div className="barra"><i style={{ width: `${(m.faturamento / (r.faturamento || 1)) * 100}%` }} /></div>
-            </div>
+            <button key={m.id ?? 'x'} type="button" className="modalidade-link" onClick={() => setModAberta(m)} title={`Ver mensalidades de ${m.nome}`}>
+              <span style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}><span>{m.nome} <span className="suave pequeno">· {m.alunos} {m.alunos === 1 ? 'aluno' : 'alunos'}</span> ›</span><Num v={m.faturamento} /></span>
+              <span className="barra"><i style={{ width: `${(m.faturamento / (r.faturamento || 1)) * 100}%` }} /></span>
+              {m.aberto > 0.009 && (
+                <span className="pequeno" style={{ display: 'flex', justifyContent: 'flex-end', color: '#C62828', fontWeight: 600 }}>
+                  <span>Não pago <Num v={m.aberto} /></span>
+                </span>
+              )}
+            </button>
           ))}
           {r.porModalidade.length === 0 && <div className="suave">Sem dados neste mês.</div>}
         </section>
@@ -72,14 +82,17 @@ export function Painel() {
       </div>
 
       <section className="cartao">
-        <div style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between' }}><h2>Em atraso</h2><Link to="/mensalidades">Ver todas</Link></div>
+        <div style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}><h2>Em atraso{r.atrasos.length > 0 && <span className="suave pequeno" style={{ fontWeight: 400 }}> · {r.atrasos.length} · <Num v={r.atrasos.reduce((s, a) => s + a.aberto, 0)} /></span>}</h2><Link to="/mensalidades">Ver todas</Link></div>
         {r.atrasos.length === 0 ? <div className="vazio">Nenhuma mensalidade em atraso.</div> : (
           <div className="tabela-wrap"><table className="tbl">
             <thead><tr><th>Aluno</th><th>Modalidade</th><th className="d">Devido</th><th>Venceu</th><th /></tr></thead>
             <tbody>{r.atrasos.slice(0, 8).map((a) => (
               <tr key={a.mensalidade_id}>
-                <td>{a.nome}</td><td>{a.modalidade}</td><td className="d"><Num v={a.aberto} /></td><td>{diaMes(a.vencimento)}</td>
-                <td className="d"><Botao pequeno onClick={() => setPagar({ mensalidade_id: a.mensalidade_id, nome: a.nome, descricao: a.modalidade, aberto: a.aberto })}>Registrar pagamento</Botao></td>
+                <td><Link to={`/alunos/${a.aluno_id}`}>{a.nome}</Link></td><td>{a.modalidade}</td><td className="d"><Num v={a.aberto} /></td><td>{diaMes(a.vencimento)}</td>
+                <td className="d"><span className="acoes-linha">
+                  {a.recorrente ? <span className="pequeno suave">cartão recorrente</span> : <BotaoCobrar aluno={a} competencia={comp} valor={a.aberto} vencimento={a.vencimento} />}
+                  <Botao pequeno onClick={() => setPagar({ mensalidade_id: a.mensalidade_id, nome: a.nome, descricao: a.modalidade, aberto: a.aberto })}>Registrar pagamento</Botao>
+                </span></td>
               </tr>
             ))}</tbody>
           </table></div>
@@ -100,6 +113,69 @@ export function Painel() {
       )}
 
       {pagar && <PagarModal item={pagar} onFechar={() => setPagar(null)} onPago={() => { setPagar(null); recarregar(); }} />}
+      {modAberta && <DetalheModalidade linha={modAberta} onFechar={() => setModAberta(null)} onMudou={recarregar} />}
+    </>
+  );
+}
+
+interface LinhaDetalhe extends Contato {
+  id: number; aluno_id: number; aluno: string; descricao: string | null; valor: number; pago: number;
+  valor_total: number; pago_total: number; fracao: number; vencimento: string | null;
+}
+
+function DetalheModalidade({ linha, onFechar, onMudou }: { linha: LinhaModalidade; onFechar: () => void; onMudou: () => void }) {
+  const { comp, base } = useApp();
+  const { dados, erro, recarregar } = useDados(() => get<LinhaDetalhe[]>(`/modalidades/${linha.id ?? 'sem'}/mensalidades?comp=${comp}`), [linha.id, comp]);
+  const [pagar, setPagar] = useState<Devendo | null>(null);
+  const [filtro, setFiltro] = useState<'todos' | 'pagos' | 'naopagos'>('todos');
+  const hoje = base?.hoje ?? '';
+  const st = (l: LinhaDetalhe) => status({ valor: l.valor_total, pago: l.pago_total, vencimento: l.vencimento }, hoje);
+  const pagos = dados?.filter((l) => st(l) === 'pago') ?? [];
+  const naoPagos = dados?.filter((l) => st(l) !== 'pago') ?? [];
+  const soma = (l: LinhaDetalhe[], f: (x: LinhaDetalhe) => number) => l.reduce((s, x) => s + f(x), 0);
+  const lista = filtro === 'pagos' ? pagos : filtro === 'naopagos' ? naoPagos : dados ?? [];
+  const rateado = dados?.some((l) => l.fracao < 0.999);
+  return (
+    <>
+    <Modal titulo={`${linha.nome} · ${nomeComp(comp)}`} onFechar={pagar ? () => undefined : onFechar} largo>
+      {!dados ? <Carregando erro={erro} /> : (
+        <>
+          <div className="grade" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
+            <div className="cartao kpi"><div className="rot">Faturamento</div><div className="val num" style={{ fontSize: 22 }}><Num v={soma(dados, (x) => x.valor)} /></div><div className="pequeno suave">{dados.length} mensalidades</div></div>
+            <div className="cartao kpi"><div className="rot">Pago</div><div className="val num" style={{ fontSize: 22, color: 'var(--marca-escura)' }}><Num v={soma(dados, (x) => x.pago)} /></div><div className="pequeno suave">{pagos.length} quitadas</div></div>
+            <div className={'cartao kpi' + (naoPagos.length ? ' atraso' : '')}><div className="rot">Não pago</div><div className="val num" style={{ fontSize: 22 }}><Num v={soma(dados, (x) => Math.max(0, x.valor - x.pago))} /></div><div className="pequeno suave">{naoPagos.length} em aberto</div></div>
+          </div>
+          <div className="fichas">
+            {([['todos', `Todos · ${dados.length}`], ['pagos', `Pagos · ${pagos.length}`], ['naopagos', `Não pagos · ${naoPagos.length}`]] as const).map(([k, r]) => (
+              <button key={k} type="button" className={'ficha' + (filtro === k ? ' ativa' : '')} onClick={() => setFiltro(k)}>{r}</button>
+            ))}
+          </div>
+          <div className="tabela-wrap"><table className="tbl">
+            <thead><tr><th>Aluno</th><th className="d">Valor</th><th className="d">Pago</th><th>Status</th><th /></tr></thead>
+            <tbody>{lista.map((l) => {
+              const s = st(l);
+              const falta = Math.round((l.valor_total - l.pago_total) * 100) / 100;
+              return (
+                <tr key={l.id}>
+                  <td><Link to={`/alunos/${l.aluno_id}`} onClick={onFechar}>{l.aluno}</Link>{l.fracao < 0.999 && <div className="pequeno suave">{Math.round(l.fracao * 100)}% de <Num v={l.valor_total} /></div>}</td>
+                  <td className="d"><Num v={l.valor} /></td><td className="d"><Num v={l.pago} /></td>
+                  <td>{s === 'pago' ? <Pilula tipo="ok">Pago</Pilula> : s === 'parcial' ? <Pilula tipo="atraso">Parcial</Pilula> : s === 'atraso' ? <Pilula tipo="atraso">Venceu {diaMes(l.vencimento)}</Pilula> : <Pilula tipo="aberto">A vencer</Pilula>}</td>
+                  <td className="d"><span className="acoes-linha">
+                    {(s === 'atraso' || s === 'parcial') && !l.recorrente && <BotaoCobrar aluno={{ ...l, nome: l.aluno }} competencia={comp} valor={falta} vencimento={l.vencimento} />}
+                    {s !== 'pago' && <Botao pequeno onClick={() => setPagar({ mensalidade_id: l.id, nome: l.aluno, descricao: linha.nome, aberto: falta })}>Registrar</Botao>}
+                  </span></td>
+                </tr>
+              );
+            })}</tbody>
+            {lista.length > 0 && <tfoot><tr><td>Total</td><td className="d"><Num v={soma(lista, (x) => x.valor)} /></td><td className="d"><Num v={soma(lista, (x) => x.pago)} /></td><td colSpan={2} /></tr></tfoot>}
+          </table>
+          {lista.length === 0 && <div className="vazio">Nada neste filtro.</div>}</div>
+          {rateado && <div className="pequeno suave">Alunos em mais de uma modalidade sem modalidade definida na mensalidade têm o valor dividido pelas aulas de cada turma.</div>}
+        </>
+      )}
+      <Botao onClick={onFechar}>Fechar</Botao>
+    </Modal>
+    {pagar && <PagarModal item={pagar} onFechar={() => setPagar(null)} onPago={() => { setPagar(null); recarregar(); onMudou(); }} />}
     </>
   );
 }

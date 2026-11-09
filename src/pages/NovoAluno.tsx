@@ -4,6 +4,7 @@ import { post } from '../api';
 import { useApp } from '../store';
 import { Botao, Campo, Carregando, Num, Topo } from '../ui';
 import { nomeComp, rotuloMeses } from '../shared/comp';
+import { Recorrente } from './AlunoFicha';
 
 export function NovoAluno() {
   const { base, comp, toast, recarregar } = useApp();
@@ -18,6 +19,7 @@ export function NovoAluno() {
   const [planoId, setPlanoId] = useState<number | 'manual'>('manual');
   const [valor, setValor] = useState('');
   const [familia, setFamilia] = useState('');
+  const [recorrente, setRecorrente] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [feito, setFeito] = useState<{ id: number; mensalidadeId: number | null; valor: number } | null>(null);
 
@@ -46,7 +48,7 @@ export function NovoAluno() {
       const r = await post<{ id: number; mensalidadeId: number | null }>('/alunos', {
         nome, telefone: tel || undefined, origem, familia: familia || undefined,
         responsavel: menor ? resp || undefined : undefined, responsavel_tel: menor ? respTel || undefined : undefined,
-        turmas, valor: origem === 'particular' && final > 0 ? final : undefined, plano: plano?.nome, meses: plano?.meses ?? 1, competencia: comp,
+        turmas, recorrente: origem === 'particular' && recorrente, valor: origem === 'particular' && final > 0 ? final : undefined, plano: plano?.nome, meses: plano?.meses ?? 1, competencia: comp,
         modalidade_id: modalidades.size === 1 ? [...modalidades][0] : undefined,
       });
       await recarregar();
@@ -62,7 +64,7 @@ export function NovoAluno() {
           <div>{nome}{feito.valor > 0 ? <> · <Num v={feito.valor} /></> : ''}.{feito.mensalidadeId ? ' A primeira mensalidade já está em Receber.' : ''}</div>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
             {feito.mensalidadeId && <Link className="btn primario" to="/receber">Receber agora</Link>}
-            <Botao onClick={() => { setFeito(null); setNome(''); setTel(''); setTurmas([]); setValor(''); setFamilia(''); setResp(''); setRespTel(''); setMenor(false); }}>Cadastrar outro</Botao>
+            <Botao onClick={() => { setFeito(null); setNome(''); setTel(''); setTurmas([]); setValor(''); setFamilia(''); setResp(''); setRespTel(''); setMenor(false); setRecorrente(false); setPlanoId('manual'); }}>Cadastrar outro</Botao>
             <Botao onClick={() => nav(`/alunos/${feito.id}`)}>Abrir ficha</Botao>
           </div>
         </div>
@@ -98,7 +100,7 @@ export function NovoAluno() {
         </div>
         {origem === 'particular' && (
           <>
-            {planosFreq.length > 0 && (
+            {base.planos.length > 0 && (
               <Campo rotulo="Plano">
                 <select value={planoId} onChange={(e) => escolherPlano(e.target.value === 'manual' ? 'manual' : Number(e.target.value))}>
                   <option value="manual">Valor combinado</option>
@@ -107,8 +109,10 @@ export function NovoAluno() {
                 {sugerido && planoId === 'manual' && <span className="pequeno" style={{ color: 'var(--marca-escura)' }}>{aulas} aulas por semana → {sugerido.nome} (R$ {sugerido.valor}) <button type="button" className="link" onClick={() => escolherPlano(sugerido.id)}>usar</button></span>}
               </Campo>
             )}
+            {base.planos.length === 0 && <div className="pequeno suave">Nenhum plano cadastrado. Cadastre em <Link to="/configuracoes">Configurações</Link> para escolher aqui; enquanto isso, informe o valor combinado.</div>}
             <Campo rotulo="Mensalidade (R$)"><input inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value)} /></Campo>
             <Campo rotulo={`Grupo familiar (desconto de R$ ${base.config.desconto_familia})`}><input value={familia} onChange={(e) => setFamilia(e.target.value)} placeholder="Ex.: Família Glória" /></Campo>
+            <Recorrente valor={recorrente} onChange={setRecorrente} />
           </>
         )}
         <div className="cartao pad">

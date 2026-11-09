@@ -1,12 +1,14 @@
 import { Hono } from 'hono';
 import type {
-  Aluno, Config, Contrato, DespesaFixa, Mensalidade, Pagamento, Plano, Professor,
+  Aluno, Config, Contrato, DespesaFixa, Matricula, Mensalidade, Pagamento, Plano, Professor, Turma,
 } from '../shared/tipos';
 import { FORMAS } from '../shared/tipos';
 import { compAtual, diffMeses, dividirValor, periodoDeMeses, somarMeses, validaComp } from '../shared/comp';
 import { calcularResumo, type DadosResumo } from '../shared/resumo';
 import { importar } from '../import/importar';
 import { chaveNome } from '../shared/nomes';
+import { MSG_COBRANCA_PADRAO } from '../shared/cobranca';
+import { rateio } from '../shared/resumo';
 
 type Env = { Bindings: { DB: D1Database } };
 
@@ -25,6 +27,7 @@ async function carregarConfig(db: D1Database): Promise<Config> {
     cartao_caixa: (m.cartao_caixa as Config['cartao_caixa']) ?? 'seguinte',
     aviso_contrato_dias: Number(m.aviso_contrato_dias ?? 30),
     gympass_2x: Number(m.gympass_2x ?? 80), gympass_3x: Number(m.gympass_3x ?? 100), gympass_5x: Number(m.gympass_5x ?? 130),
+    msg_cobranca: m.msg_cobranca ?? MSG_COBRANCA_PADRAO,
   };
 }
 
@@ -119,16 +122,34 @@ export function criarApp() {
   app.get('/resumo', async (c) => {
     const comp = compDe(c);
     const resumo = await resumoDoMes(c.env.DB, comp);
-    const fech = await c.env.DB.prepare('SELECT fechado_em FROM fechamentos WHERE competencia = ?').bind(comp).first<{ fechado_em: string }>();
-    return c.json({ ...resumo, fechadoEm: fech?.fechado_em ?? null });
+    const [fech, contatos] = await Promise.all([
+      c.env.DB.prepare('SELECT fechado_em FROM fechamentos WHERE competencia = ?').bind(comp).first<{ fechado_em: string }>(),
+      c.env.DB.prepare('SELECT id, telefone, responsavel, responsavel_tel, recorrente FROM alunos').all(),
+    ]);
+    const porId = new Map((contatos.results as { id: number }[]).map(({ id, ...ct }) => [id, ct]));
+    const comContato = <T extends { aluno_id: number }>(l: T[]) => l.map((x) => ({ ...x, ...porId.get(x.aluno_id) }));
+    return c.json({ ...resumo, atrasos: comContato(resumo.atrasos), emAberto: comContato(resumo.emAberto), fechadoEm: fech?.fechado_em ?? null });
   });
 
   // Indicadores mês a mês (padrão: 12 meses terminando na competência pedida).
   app.get('/historico', async (c) => {
     const db = c.env.DB;
-    const fim = compDe(c);
-    const n = Math.min(24, Math.max(1, Number(c.req.query('meses') ?? 12) || 12));
-    const comps = Array.from({ length: n }, (_, i) => somarMeses(fim, i - (n - 1)));
+    const ano = c.req.query('ano');
+    if (ano && !/^\d{4}$/.test(ano)) throw new Erro(400, 'Ano inválido (use AAAA).');
+    let comps: string[];
+    if (ano) {
+      comps = Array.from({ length: 12 }, (_, i) => `${ano}-${String(i + 1).padStart(2, '0')}`);
+    } else if (c.req.query('tudo')) {
+      // Do primeiro ao último mês que tem lançamento no sistema.
+      const lim = await db.prepare('SELECT MIN(competencia) AS a, MAX(competencia) AS b FROM (SELECT competencia FROM mensalidades UNION ALL SELECT competencia FROM despesas)').first<{ a: string | null; b: string | null }>();
+      const fim = lim?.b ?? compAtual();
+      const n = Math.min(120, diffMeses(lim?.a ?? fim, fim) + 1);
+      comps = Array.from({ length: n }, (_, i) => somarMeses(fim, i - (n - 1)));
+    } else {
+      const fim = compDe(c);
+      const n = Math.min(24, Math.max(1, Number(c.req.query('meses') ?? 12) || 12));
+      comps = Array.from({ length: n }, (_, i) => somarMeses(fim, i - (n - 1)));
+    }
     const primeira = somarMeses(comps[0], -1);
     const [resumos, pares, fech] = await Promise.all([
       Promise.all(comps.map((comp) => resumoDoMes(db, comp))),
@@ -149,7 +170,8 @@ export function criarApp() {
       const ant = i === 0 ? primeira : comps[i - 1];
       const ativos = porMes.get(comp) ?? new Set<number>();
       const antes = porMes.get(ant);
-      const temDados = ativos.size > 0 || r.despesas.total > 0;
+      // Salário calculado pela regra do professor existe em qualquer mês; só conta como dado o que foi lançado.
+      const temDados = ativos.size > 0 || r.despesas.contas > 0 || r.despesas.pessoal.some((x) => !x.calculado);
       // Entradas e saídas só fazem sentido quando o mês anterior também tem dados no sistema.
       let novos: number | null = null, saidas: number | null = null;
       if (antes && antes.size > 0 && ativos.size > 0) {
@@ -229,15 +251,15 @@ export function criarApp() {
     const db = c.env.DB;
     const b = await c.req.json<{
       nome: string; telefone?: string; nascimento?: string; responsavel?: string; responsavel_tel?: string; familia?: string;
-      origem?: 'particular' | 'gympass'; observacoes?: string; turmas?: number[];
+      origem?: 'particular' | 'gympass'; observacoes?: string; turmas?: number[]; recorrente?: boolean;
       valor?: number; plano?: string; periodo?: 'mensal' | 'semestral' | 'anual'; meses?: number; competencia?: string; modalidade_id?: number;
     }>();
     if (!b.nome?.trim()) throw new Erro(400, 'Informe o nome do aluno.');
     const comp = b.competencia ?? compAtual();
     if (b.valor && b.valor > 0) await exigeAberto(db, comp);
     const r = await db.prepare(
-      'INSERT INTO alunos (nome, chave, telefone, nascimento, responsavel, responsavel_tel, familia, origem, observacoes) VALUES (?,?,?,?,?,?,?,?,?)',
-    ).bind(b.nome.trim(), chaveNome(b.nome), b.telefone ?? null, b.nascimento ?? null, b.responsavel ?? null, b.responsavel_tel ?? null, b.familia ?? null, b.origem ?? 'particular', b.observacoes ?? null).run();
+      'INSERT INTO alunos (nome, chave, telefone, nascimento, responsavel, responsavel_tel, familia, origem, observacoes, recorrente) VALUES (?,?,?,?,?,?,?,?,?,?)',
+    ).bind(b.nome.trim(), chaveNome(b.nome), b.telefone ?? null, b.nascimento ?? null, b.responsavel ?? null, b.responsavel_tel ?? null, b.familia ?? null, b.origem ?? 'particular', b.observacoes ?? null, b.recorrente ? 1 : 0).run();
     const id = r.meta.last_row_id;
     for (const t of b.turmas ?? []) {
       await db.prepare('INSERT OR IGNORE INTO matriculas (aluno_id, turma_id, inicio) VALUES (?,?,?)').bind(id, t, comp).run();
@@ -265,7 +287,7 @@ export function criarApp() {
     const db = c.env.DB;
     const id = Number(c.req.param('id'));
     const b = await c.req.json<Partial<Aluno>>();
-    const campos = ['nome', 'telefone', 'nascimento', 'responsavel', 'responsavel_tel', 'familia', 'origem', 'ativo', 'observacoes'] as const;
+    const campos = ['nome', 'telefone', 'nascimento', 'responsavel', 'responsavel_tel', 'familia', 'origem', 'ativo', 'observacoes', 'recorrente'] as const;
     const sets: string[] = [], vals: unknown[] = [];
     for (const k of campos) if (k in b) { sets.push(`${k} = ?`); vals.push(b[k] ?? null); }
     if (b.nome) { sets.push('chave = ?'); vals.push(chaveNome(b.nome)); }
@@ -546,8 +568,22 @@ export function criarApp() {
     if (sets.length) await c.env.DB.prepare(`UPDATE turmas SET ${sets.join(', ')} WHERE id = ?`).bind(...vals, Number(c.req.param('id'))).run();
     return c.json({ ok: true });
   });
+  app.get('/turmas/inativas', async (c) => {
+    const r = await c.env.DB.prepare(`SELECT t.*, (SELECT COUNT(*) FROM matriculas m JOIN alunos a ON a.id = m.aluno_id WHERE m.turma_id = t.id AND a.ativo = 1) AS ocupadas
+      FROM turmas t WHERE t.ativo = 0 ORDER BY t.modalidade_id, t.horario, t.nome`).all();
+    return c.json(r.results);
+  });
+  // Alunos da turma com a situação de pagamento na competência.
   app.get('/turmas/:id/alunos', async (c) => {
-    const r = await c.env.DB.prepare('SELECT a.id, a.nome, a.ativo FROM matriculas m JOIN alunos a ON a.id = m.aluno_id WHERE m.turma_id = ? ORDER BY a.nome COLLATE NOCASE').bind(Number(c.req.param('id'))).all();
+    const comp = compDe(c);
+    const r = await c.env.DB.prepare(`
+      SELECT a.id, a.nome, a.ativo, a.telefone, a.responsavel, a.responsavel_tel, a.recorrente,
+             COALESCE(SUM(ms.valor), 0) AS devido,
+             COALESCE(SUM((SELECT SUM(p.valor) FROM pagamentos p WHERE p.mensalidade_id = ms.id)), 0) AS pago,
+             MIN(ms.vencimento) AS vencimento, COUNT(ms.id) AS qtd
+      FROM matriculas m JOIN alunos a ON a.id = m.aluno_id
+      LEFT JOIN mensalidades ms ON ms.aluno_id = a.id AND ms.competencia = ? AND ms.cancelada = 0
+      WHERE m.turma_id = ? GROUP BY a.id ORDER BY a.nome COLLATE NOCASE`).bind(comp, Number(c.req.param('id'))).all();
     return c.json(r.results);
   });
 
@@ -555,7 +591,7 @@ export function criarApp() {
   app.get('/mensalidades', async (c) => {
     const comp = compDe(c);
     const r = await c.env.DB.prepare(`
-      SELECT m.*, a.nome AS aluno, a.origem, a.forma_pagamento, md.nome AS modalidade,
+      SELECT m.*, a.nome AS aluno, a.origem, a.telefone, a.responsavel, a.responsavel_tel, a.recorrente, a.forma_pagamento, md.nome AS modalidade,
              COALESCE((SELECT SUM(valor) FROM pagamentos WHERE mensalidade_id = m.id), 0) AS pago,
              (SELECT GROUP_CONCAT(DISTINCT forma) FROM pagamentos WHERE mensalidade_id = m.id) AS formas
       FROM mensalidades m JOIN alunos a ON a.id = m.aluno_id LEFT JOIN modalidades md ON md.id = m.modalidade_id
@@ -580,8 +616,18 @@ export function criarApp() {
     const m = await db.prepare('SELECT * FROM mensalidades WHERE id = ?').bind(id).first<Mensalidade>();
     if (!m) throw new Erro(404, 'Mensalidade não encontrada.');
     await exigeAberto(db, m.competencia);
-    const b = await c.req.json<{ valor?: number; cancelada?: number; observacao?: string }>();
-    if (b.valor != null) await db.prepare('UPDATE mensalidades SET valor = ? WHERE id = ?').bind(b.valor, id).run();
+    const b = await c.req.json<{ valor?: number; cancelada?: number; observacao?: string; propagar?: boolean }>();
+    if (b.valor != null) {
+      if (!(b.valor >= 0)) throw new Erro(400, 'Valor inválido.');
+      await db.prepare('UPDATE mensalidades SET valor = ? WHERE id = ?').bind(b.valor, id).run();
+      if (b.propagar) {
+        // Meses seguintes já gerados (e não fechados) da mesma cobrança, que ainda tinham o valor antigo, passam ao novo.
+        await db.prepare(`UPDATE mensalidades SET valor = ? WHERE aluno_id = ? AND competencia > ? AND cancelada = 0
+            AND modalidade_id IS ? AND descricao IS ? AND ABS(valor - ?) < 0.01 AND competencia NOT IN (SELECT competencia FROM fechamentos)`)
+          .bind(b.valor, m.aluno_id, m.competencia, m.modalidade_id, m.descricao, m.valor).run();
+        if (m.contrato_id != null) await db.prepare('UPDATE contratos SET valor_mensal = ? WHERE id = ?').bind(b.valor, m.contrato_id).run();
+      }
+    }
     if (b.cancelada != null) await db.prepare('UPDATE mensalidades SET cancelada = ? WHERE id = ?').bind(b.cancelada ? 1 : 0, id).run();
     if (b.observacao != null) await db.prepare('UPDATE mensalidades SET observacao = ? WHERE id = ?').bind(b.observacao, id).run();
     return c.json({ ok: true });
@@ -618,6 +664,55 @@ export function criarApp() {
   app.get('/mensalidades/:id/pagamentos', async (c) => {
     const r = await c.env.DB.prepare('SELECT * FROM pagamentos WHERE mensalidade_id = ? ORDER BY data, id').bind(Number(c.req.param('id'))).all();
     return c.json(r.results);
+  });
+
+  // Baixa em lote das mensalidades em aberto dos alunos com cobrança recorrente no cartão.
+  app.post('/mensalidades/baixar-recorrentes', async (c) => {
+    const db = c.env.DB;
+    const b = await c.req.json<{ competencia: string; data?: string }>();
+    if (!validaComp(b.competencia)) throw new Erro(400, 'Competência inválida.');
+    await exigeAberto(db, b.competencia);
+    const cfg = await carregarConfig(db);
+    const data = b.data ?? hoje();
+    const mesData = data.slice(0, 7);
+    const caixa = cfg.cartao_caixa === 'seguinte' ? somarMeses(mesData, 1) : mesData;
+    const abertas = (await db.prepare(`
+      SELECT m.id, m.valor - COALESCE((SELECT SUM(valor) FROM pagamentos WHERE mensalidade_id = m.id), 0) AS falta
+      FROM mensalidades m JOIN alunos a ON a.id = m.aluno_id
+      WHERE m.competencia = ? AND m.cancelada = 0 AND a.recorrente = 1`).bind(b.competencia).all()).results as { id: number; falta: number }[];
+    const st = abertas.filter((x) => x.falta > 0.009)
+      .map((x) => db.prepare("INSERT INTO pagamentos (mensalidade_id, valor, forma, data, caixa) VALUES (?,?,'credito',?,?)").bind(x.id, Math.round(x.falta * 100) / 100, data, caixa));
+    for (let i = 0; i < st.length; i += 50) await db.batch(st.slice(i, i + 50));
+    return c.json({ baixadas: st.length });
+  });
+
+  // Mensalidades que compõem o faturamento de uma modalidade (com o mesmo rateio do dashboard).
+  app.get('/modalidades/:id/mensalidades', async (c) => {
+    const db = c.env.DB;
+    const comp = compDe(c);
+    const idParam = c.req.param('id');
+    const alvo = idParam === 'sem' ? null : Number(idParam);
+    const [mens, mats, turmas] = await Promise.all([
+      db.prepare(`SELECT m.*, a.nome AS aluno, a.telefone, a.responsavel, a.responsavel_tel, a.recorrente,
+                    COALESCE((SELECT SUM(valor) FROM pagamentos WHERE mensalidade_id = m.id), 0) AS pago
+                  FROM mensalidades m JOIN alunos a ON a.id = m.aluno_id
+                  WHERE m.competencia = ? AND m.cancelada = 0 ORDER BY a.nome COLLATE NOCASE`).bind(comp).all(),
+      db.prepare('SELECT * FROM matriculas').all(),
+      db.prepare('SELECT * FROM turmas').all(),
+    ]);
+    const mapaTurmas = new Map((turmas.results as unknown as Turma[]).map((t) => [t.id, t]));
+    const porAluno = new Map<number, Matricula[]>();
+    for (const mt of mats.results as unknown as Matricula[]) {
+      if (!porAluno.has(mt.aluno_id)) porAluno.set(mt.aluno_id, []);
+      porAluno.get(mt.aluno_id)!.push(mt);
+    }
+    const linhas = [];
+    for (const m of mens.results as unknown as (Mensalidade & { pago: number })[]) {
+      const frac = rateio(m, porAluno.get(m.aluno_id) ?? [], mapaTurmas).get(alvo) ?? 0;
+      if (frac <= 0) continue;
+      linhas.push({ ...m, fracao: frac, valor: m.valor * frac, pago: m.pago * frac, valor_total: m.valor, pago_total: m.pago });
+    }
+    return c.json(linhas);
   });
 
   // Gera as mensalidades e despesas fixas de um mês a partir do mês anterior.
@@ -775,7 +870,7 @@ export function criarApp() {
   app.get('/config', async (c) => c.json(await carregarConfig(c.env.DB)));
   app.put('/config', async (c) => {
     const b = await c.req.json<Record<string, string | number>>();
-    const validas = ['nome_academia', 'nome_usuario', 'dia_vencimento', 'desconto_familia', 'cartao_caixa', 'aviso_contrato_dias', 'gympass_2x', 'gympass_3x', 'gympass_5x'];
+    const validas = ['nome_academia', 'nome_usuario', 'dia_vencimento', 'desconto_familia', 'cartao_caixa', 'aviso_contrato_dias', 'gympass_2x', 'gympass_3x', 'gympass_5x', 'msg_cobranca'];
     const st = Object.entries(b).filter(([k]) => validas.includes(k))
       .map(([k, v]) => c.env.DB.prepare('INSERT INTO config (chave, valor) VALUES (?,?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor').bind(k, String(v)));
     if (st.length) await c.env.DB.batch(st);

@@ -44,6 +44,14 @@ export function Configuracoes() {
       </section>
 
       <section className="cartao pad form">
+        <h2>Mensagem de cobrança (WhatsApp)</h2>
+        <Campo rotulo="Texto enviado ao clicar em “Cobrar no WhatsApp”">
+          <textarea rows={4} value={cfg.msg_cobranca} onChange={(e) => set('msg_cobranca', e.target.value)} />
+        </Campo>
+        <div className="pequeno suave">Marcadores: {'{nome}'} (primeiro nome do aluno ou do responsável), {'{aluno}'} (nome completo), {'{mes}'}, {'{valor}'} (valor em aberto), {'{vencimento}'}, {'{academia}'}. Para menores, a mensagem vai para o WhatsApp do responsável.</div>
+      </section>
+
+      <section className="cartao pad form">
         <h2>Gympass: valor estimado por frequência</h2>
         <div className="linha-campos">
           {([2, 3, 5] as const).map((n) => (

@@ -99,64 +99,6 @@ export function AdiantadoModal({ alunoId, nome, inicioSugerido, contratoAtual, o
   );
 }
 
-/** Contrato novo (qualquer duração) para um aluno que já está cadastrado. */
-export function NovoContratoModal({ alunoId, inicioSugerido, valorSugerido, onFechar, onSalvo }: {
-  alunoId: number; inicioSugerido: string; valorSugerido: number | null; onFechar: () => void; onSalvo: () => void;
-}) {
-  const { base, toast } = useApp();
-  const planos = (base?.planos ?? []).filter((p) => (p.meses ?? 1) > 1);
-  const [plano, setPlano] = useState('');
-  const [meses, setMeses] = useState('12');
-  const [valor, setValor] = useState(valorSugerido ? String(valorSugerido).replace('.', ',') : '');
-  const [inicio, setInicio] = useState(inicioSugerido);
-  const n = Number(meses);
-  const v = numero(valor);
-  const valido = Number.isInteger(n) && n >= 1 && n <= 60 && v > 0 && /^\d{4}-\d{2}$/.test(inicio);
-
-  function escolher(id: string) {
-    const p = planos.find((x) => String(x.id) === id);
-    if (!p) return;
-    setPlano(p.nome); setMeses(String(p.meses)); setValor(String(p.valor).replace('.', ','));
-  }
-
-  async function salvar() {
-    try {
-      await post(`/alunos/${alunoId}/contratos`, { plano: plano.trim() || undefined, valor_mensal: v, meses: n, inicio });
-      toast('Contrato criado.');
-      onSalvo();
-    } catch (e) { toast(e instanceof Error ? e.message : 'Erro', true); }
-  }
-
-  return (
-    <Modal titulo="Novo contrato" onFechar={onFechar}>
-      <div className="form">
-        {planos.length > 0 && (
-          <Campo rotulo="Plano cadastrado">
-            <select defaultValue="" onChange={(e) => escolher(e.target.value)}>
-              <option value="">Escolher…</option>
-              {planos.map((p) => <option key={p.id} value={p.id}>{p.nome} · {rotuloMeses(p.meses)} · R$ {p.valor}</option>)}
-            </select>
-          </Campo>
-        )}
-        <Campo rotulo="Nome do plano"><input value={plano} onChange={(e) => setPlano(e.target.value)} placeholder="Ex.: Plano 13 meses" /></Campo>
-        <div className="linha-campos">
-          <Campo rotulo="Duração (meses)"><input type="number" min={1} max={60} value={meses} onChange={(e) => setMeses(e.target.value)} /></Campo>
-          <Campo rotulo="Valor mensal (R$)"><input inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value)} /></Campo>
-        </div>
-        <Campo rotulo="Começa em"><input type="month" value={inicio} onChange={(e) => setInicio(e.target.value)} /></Campo>
-      </div>
-      <div className="suave pequeno">
-        O mês de início precisa já ter a mensalidade do aluno; ela passa a ter o valor do contrato e os meses seguintes copiam dela.
-        {valido && ` Termina em ${nomeComp(somarMeses(inicio, n - 1))}.`}
-      </div>
-      <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-        <Botao onClick={onFechar}>Cancelar</Botao>
-        <Botao tipo="primario" desligado={!valido} onClick={salvar}>Criar contrato</Botao>
-      </div>
-    </Modal>
-  );
-}
-
 type FormaPart = 'dinheiro' | 'pix' | 'debito' | 'credito';
 
 /** Troca o plano de pagamento de um aluno que já existe (particular ↔ Gympass, valor, forma, contrato). */
@@ -171,7 +113,7 @@ export function TrocarPlanoModal({ aluno, aulasSemana, valorAtual, contratoAtual
   const [planoId, setPlanoId] = useState('');
   const [descricao, setDescricao] = useState('');
   const [valor, setValor] = useState(valorAtual ? String(valorAtual).replace('.', ',') : '');
-  const [meses, setMeses] = useState(1);
+  const [meses, setMeses] = useState(contratoAtual?.meses ?? 1);
   const [forma, setForma] = useState<FormaPart>(aluno.forma_pagamento && aluno.forma_pagamento !== 'gympass' ? aluno.forma_pagamento : 'pix');
   const [manter, setManter] = useState<'manter' | 'encerrar'>('manter');
   const [aPartir, setAPartir] = useState(inicioSugerido);
@@ -238,6 +180,18 @@ export function TrocarPlanoModal({ aluno, aulasSemana, valorAtual, contratoAtual
                 {OPCOES.map(([k, r]) => (
                   <button key={k} type="button" role="radio" aria-checked={forma === k} className={'ficha' + (forma === k ? ' ativa' : '')} onClick={() => setForma(k)}>{r}</button>
                 ))}
+              </div>
+            </div>
+            <div>
+              <div className="suave pequeno" style={{ marginBottom: 8, fontWeight: 500 }}>Duração</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <div className="fichas" role="radiogroup" aria-label="Duração do plano">
+                  {[1, 3, 6, 12].map((m) => (
+                    <button key={m} type="button" role="radio" aria-checked={meses === m} className={'ficha' + (meses === m ? ' ativa' : '')} onClick={() => setMeses(m)}>{rotuloMeses(m)}</button>
+                  ))}
+                </div>
+                <input className="entrada" type="number" min={1} max={60} value={meses} onChange={(e) => setMeses(Math.max(1, Math.min(60, Number(e.target.value) || 1)))} aria-label="Duração em meses" style={{ width: 80 }} />
+                <span className="pequeno suave">meses</span>
               </div>
             </div>
             {meses <= 1 && contratoAtual && (
