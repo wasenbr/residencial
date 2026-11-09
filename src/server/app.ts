@@ -13,6 +13,7 @@ import { rateio } from '../shared/resumo';
 type Env = { Bindings: { DB: D1Database } };
 
 const hoje = () => new Date().toISOString().slice(0, 10);
+const r2 = (n: number) => Math.round(n * 100) / 100;
 
 class Erro extends Error {
   constructor(public status: 400 | 404 | 409, msg: string) { super(msg); }
@@ -253,9 +254,13 @@ export function criarApp() {
       nome: string; telefone?: string; nascimento?: string; responsavel?: string; responsavel_tel?: string; familia?: string;
       origem?: 'particular' | 'gympass'; observacoes?: string; turmas?: number[]; recorrente?: boolean;
       valor?: number; plano?: string; periodo?: 'mensal' | 'semestral' | 'anual'; meses?: number; competencia?: string; modalidade_id?: number;
+      partes?: { modalidade_id: number; valor: number }[];
     }>();
     if (!b.nome?.trim()) throw new Erro(400, 'Informe o nome do aluno.');
     const comp = b.competencia ?? compAtual();
+    // Valor dividido entre modalidades: o total é a soma das partes.
+    const partes = (b.partes ?? []).filter((p) => p.modalidade_id && p.valor > 0);
+    if (partes.length > 1) b.valor = r2(partes.reduce((s, p) => s + p.valor, 0));
     if (b.valor && b.valor > 0) await exigeAberto(db, comp);
     const r = await db.prepare(
       'INSERT INTO alunos (nome, chave, telefone, nascimento, responsavel, responsavel_tel, familia, origem, observacoes, recorrente) VALUES (?,?,?,?,?,?,?,?,?,?)',
@@ -276,9 +281,12 @@ export function criarApp() {
           .bind(id, b.plano ?? periodo, periodo, b.valor, comp, meses).run();
         contratoId = cr.meta.last_row_id;
       }
-      const mr = await db.prepare('INSERT INTO mensalidades (aluno_id, contrato_id, competencia, modalidade_id, descricao, valor, vencimento) VALUES (?,?,?,?,?,?,?)')
-        .bind(id, contratoId, comp, b.modalidade_id ?? null, b.plano ?? null, b.valor, venc).run();
-      mensalidadeId = mr.meta.last_row_id;
+      const lista = partes.length > 1 ? partes : [{ modalidade_id: b.modalidade_id ?? null, valor: b.valor }];
+      for (const p of lista) {
+        const mr = await db.prepare('INSERT INTO mensalidades (aluno_id, contrato_id, competencia, modalidade_id, descricao, valor, vencimento) VALUES (?,?,?,?,?,?,?)')
+          .bind(id, contratoId, comp, p.modalidade_id, b.plano ?? null, p.valor, venc).run();
+        mensalidadeId ??= mr.meta.last_row_id;
+      }
     }
     return c.json({ id, mensalidadeId }, 201);
   });
@@ -403,6 +411,56 @@ export function criarApp() {
     }
     await db.batch(stmts);
     return c.json({ alteradas, mantidas, criada });
+  });
+
+  // Divide a mensalidade de um aluno entre modalidades (ex.: R$ 150 = 70 Zumba + 80 Funcional).
+  // A mensalidade do mês vira uma por modalidade; com "propagar", os meses seguintes já
+  // gerados (sem pagamento e ainda com o valor antigo) são divididos igual, e os novos copiam.
+  app.post('/alunos/:id/dividir', async (c) => {
+    const db = c.env.DB;
+    const id = Number(c.req.param('id'));
+    const b = await c.req.json<{ competencia: string; partes: { modalidade_id: number; valor: number }[]; propagar?: boolean }>();
+    if (!validaComp(b.competencia)) throw new Erro(400, 'Informe o mês.');
+    const partes = (b.partes ?? []).map((p) => ({ modalidade_id: Number(p.modalidade_id), valor: r2(Number(p.valor)) }));
+    if (partes.length < 2) throw new Erro(400, 'Informe pelo menos duas modalidades.');
+    if (new Set(partes.map((p) => p.modalidade_id)).size !== partes.length) throw new Erro(400, 'Cada modalidade só pode aparecer uma vez.');
+    if (partes.some((p) => !(p.valor > 0))) throw new Erro(400, 'Informe o valor de cada modalidade.');
+    await exigeAberto(db, b.competencia);
+    const existentes = new Set(((await db.prepare('SELECT id FROM modalidades').all()).results as { id: number }[]).map((x) => x.id));
+    if (partes.some((p) => !existentes.has(p.modalidade_id))) throw new Erro(400, 'Modalidade inválida.');
+
+    const mens = (await db.prepare(`
+      SELECT m.*, COALESCE((SELECT SUM(valor) FROM pagamentos WHERE mensalidade_id = m.id), 0) AS pago
+      FROM mensalidades m WHERE m.aluno_id = ? AND m.cancelada = 0 AND m.competencia >= ? ORDER BY m.competencia, m.id`).bind(id, b.competencia).all()).results as unknown as
+      (Mensalidade & { pago: number })[];
+    const doMes = mens.filter((m) => m.competencia === b.competencia);
+    if (doMes.length !== 1) throw new Erro(409, doMes.length === 0 ? 'O aluno não tem mensalidade nesse mês.' : 'Esse mês já tem mais de uma mensalidade. Use “Alterar” em cada linha.');
+    const alvo = doMes[0];
+    if (alvo.pago > 0) throw new Erro(409, 'Esse mês já tem pagamento registrado. Divida a partir do mês seguinte.');
+
+    const alvos = [alvo];
+    if (b.propagar) {
+      const fechados = new Set(((await db.prepare('SELECT competencia FROM fechamentos').all()).results as { competencia: string }[]).map((x) => x.competencia));
+      const porMes = new Map<string, number>();
+      for (const m of mens) porMes.set(m.competencia, (porMes.get(m.competencia) ?? 0) + 1);
+      for (const m of mens) {
+        if (m.competencia <= b.competencia || fechados.has(m.competencia) || porMes.get(m.competencia) !== 1) continue;
+        if (m.pago > 0 || m.modalidade_id !== alvo.modalidade_id || m.descricao !== alvo.descricao || Math.abs(m.valor - alvo.valor) > 0.009) continue;
+        alvos.push(m);
+      }
+    }
+    const stmts: D1PreparedStatement[] = [];
+    for (const m of alvos) {
+      stmts.push(db.prepare('UPDATE mensalidades SET valor = ?, modalidade_id = ? WHERE id = ?').bind(partes[0].valor, partes[0].modalidade_id, m.id));
+      for (const p of partes.slice(1)) {
+        stmts.push(db.prepare('INSERT INTO mensalidades (aluno_id, contrato_id, competencia, modalidade_id, descricao, valor, vencimento, adiantado) VALUES (?,?,?,?,?,?,?,?)')
+          .bind(id, m.contrato_id, m.competencia, p.modalidade_id, m.descricao, p.valor, m.vencimento, m.adiantado));
+      }
+    }
+    const total = r2(partes.reduce((s, p) => s + p.valor, 0));
+    if (b.propagar && alvo.contrato_id != null) stmts.push(db.prepare('UPDATE contratos SET valor_mensal = ? WHERE id = ?').bind(total, alvo.contrato_id));
+    await db.batch(stmts);
+    return c.json({ meses: alvos.length, total });
   });
 
   // Contrato novo para um aluno que já está cadastrado. Vale a partir de um mês

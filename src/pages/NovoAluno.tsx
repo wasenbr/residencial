@@ -20,6 +20,8 @@ export function NovoAluno() {
   const [valor, setValor] = useState('');
   const [familia, setFamilia] = useState('');
   const [recorrente, setRecorrente] = useState(false);
+  const [dividir, setDividir] = useState(false);
+  const [partesValor, setPartesValor] = useState<Record<number, string>>({});
   const [salvando, setSalvando] = useState(false);
   const [feito, setFeito] = useState<{ id: number; mensalidadeId: number | null; valor: number } | null>(null);
 
@@ -38,7 +40,14 @@ export function NovoAluno() {
       if (p) setValor(String(p.valor));
     }
   }
-  const final = Math.max(0, (v || 0) - desconto);
+  // Modalidades das turmas escolhidas (para dividir o valor entre elas).
+  const mods = base.modalidades.filter((m) => selecionadas.some((t) => t.modalidade_id === m.id));
+  const podeDividir = origem === 'particular' && mods.length > 1;
+  const dividindo = podeDividir && dividir;
+  const num = (s: string | undefined) => Number((s ?? '').replace(',', '.')) || 0;
+  const partes = mods.map((m) => ({ modalidade_id: m.id, valor: num(partesValor[m.id]) }));
+  const somaPartes = partes.reduce((s, p) => s + p.valor, 0);
+  const final = dividindo ? somaPartes : Math.max(0, (v || 0) - desconto);
 
   async function salvar() {
     setSalvando(true);
@@ -50,6 +59,7 @@ export function NovoAluno() {
         responsavel: menor ? resp || undefined : undefined, responsavel_tel: menor ? respTel || undefined : undefined,
         turmas, recorrente: origem === 'particular' && recorrente, valor: origem === 'particular' && final > 0 ? final : undefined, plano: plano?.nome, meses: plano?.meses ?? 1, competencia: comp,
         modalidade_id: modalidades.size === 1 ? [...modalidades][0] : undefined,
+        partes: dividindo ? partes.filter((p) => p.valor > 0) : undefined,
       });
       await recarregar();
       setFeito({ ...r, valor: final });
@@ -64,7 +74,7 @@ export function NovoAluno() {
           <div>{nome}{feito.valor > 0 ? <> · <Num v={feito.valor} /></> : ''}.{feito.mensalidadeId ? ' A primeira mensalidade já está em Receber.' : ''}</div>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
             {feito.mensalidadeId && <Link className="btn primario" to="/receber">Receber agora</Link>}
-            <Botao onClick={() => { setFeito(null); setNome(''); setTel(''); setTurmas([]); setValor(''); setFamilia(''); setResp(''); setRespTel(''); setMenor(false); setRecorrente(false); setPlanoId('manual'); }}>Cadastrar outro</Botao>
+            <Botao onClick={() => { setFeito(null); setNome(''); setTel(''); setTurmas([]); setValor(''); setFamilia(''); setResp(''); setRespTel(''); setMenor(false); setRecorrente(false); setPlanoId('manual'); setDividir(false); setPartesValor({}); }}>Cadastrar outro</Botao>
             <Botao onClick={() => nav(`/alunos/${feito.id}`)}>Abrir ficha</Botao>
           </div>
         </div>
@@ -110,16 +120,27 @@ export function NovoAluno() {
               </Campo>
             )}
             {base.planos.length === 0 && <div className="pequeno suave">Nenhum plano cadastrado. Cadastre em <Link to="/configuracoes">Configurações</Link> para escolher aqui; enquanto isso, informe o valor combinado.</div>}
-            <Campo rotulo="Mensalidade (R$)"><input inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value)} /></Campo>
+            {podeDividir && (
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minHeight: 44 }}>
+                <input type="checkbox" checked={dividir} onChange={(e) => setDividir(e.target.checked)} style={{ width: 20, height: 20, marginTop: 2 }} />
+                <span>Dividir o valor entre as modalidades<div className="pequeno suave">Cada modalidade fica com a sua parte (ex.: 70 + 80). O aluno continua pagando o total.</div></span>
+              </label>
+            )}
+            {dividindo
+              ? mods.map((m) => (
+                <Campo key={m.id} rotulo={`${m.nome} (R$)`}><input inputMode="decimal" value={partesValor[m.id] ?? ''} onChange={(e) => setPartesValor({ ...partesValor, [m.id]: e.target.value })} /></Campo>
+              ))
+              : <Campo rotulo="Mensalidade (R$)"><input inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value)} /></Campo>}
             <Campo rotulo={`Grupo familiar (desconto de R$ ${base.config.desconto_familia})`}><input value={familia} onChange={(e) => setFamilia(e.target.value)} placeholder="Ex.: Família Glória" /></Campo>
             <Recorrente valor={recorrente} onChange={setRecorrente} />
           </>
         )}
         <div className="cartao pad">
           <div className="resumo-linha forte"><span>{origem === 'gympass' ? 'Aluno Gympass' : 'Mensalidade'}</span><span>{origem === 'gympass' ? 'sem cobrança direta' : <Num v={final} />}</span></div>
-          {desconto > 0 && v > 0 && <div className="pequeno suave">Inclui desconto família de R$ {desconto}.</div>}
+          {desconto > 0 && v > 0 && !dividindo && <div className="pequeno suave">Inclui desconto família de R$ {desconto}.</div>}
+          {desconto > 0 && dividindo && <div className="pequeno suave">Com o valor dividido, informe cada parte já com o desconto família.</div>}
         </div>
-        <Botao tipo="primario" onClick={salvar} desligado={!nome.trim() || salvando || (origem === 'particular' && valor !== '' && !(v >= 0))}>Cadastrar aluno</Botao>
+        <Botao tipo="primario" onClick={salvar} desligado={!nome.trim() || salvando || (dividindo ? partes.filter((p) => p.valor > 0).length < 2 : origem === 'particular' && valor !== '' && !(v >= 0))}>Cadastrar aluno</Botao>
       </div>
     </>
   );

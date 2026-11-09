@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { get } from '../api';
 import { nomeComp } from '../shared/comp';
 import { useApp } from '../store';
@@ -19,7 +19,7 @@ const pct = (n: number) => `${n.toLocaleString('pt-BR', { maximumFractionDigits:
 
 interface Serie { nome: string; cor: string; valores: (number | null)[]; tracejada?: boolean }
 
-const L = 56, R = 16, T = 12, B = 28, W = 720, H = 240;
+const L = 48, R = 12, T = 12, B = 28;
 
 function escala(max: number, min: number) {
   const span = max - min || 1;
@@ -33,31 +33,42 @@ function escala(max: number, min: number) {
 }
 
 /** Eixo, grade leve e dica ao passar o mouse, comuns aos dois gráficos. */
-function Quadro({ meses, series, fmt, tipo, minZero = true }: {
-  meses: Mes[]; series: Serie[]; fmt: (n: number) => string; tipo: 'linha' | 'barra' | 'pilha'; minZero?: boolean;
+function Quadro({ meses, series, fmt, tipo, minZero = true, H = 240 }: {
+  meses: Mes[]; series: Serie[]; fmt: (n: number) => string; tipo: 'linha' | 'barra' | 'pilha'; minZero?: boolean; H?: number;
 }) {
   const [sel, setSel] = useState<number | null>(null);
+  const [W, setW] = useState(480);
+  const caixa = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = caixa.current;
+    if (!el) return;
+    const ler = () => setW(Math.max(240, Math.round(el.clientWidth)));
+    ler();
+    const ro = new ResizeObserver(ler);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const somas = meses.map((_, i) => series.reduce((t, s) => t + (s.valores[i] ?? 0), 0));
   const todos = tipo === 'pilha' ? somas : series.flatMap((s) => s.valores).filter((v): v is number => v != null);
   const { lo, hi, ticks } = escala(Math.max(0, ...todos), minZero ? Math.min(0, ...todos) : Math.min(...todos, 0));
   const n = meses.length;
   const x = (i: number) => L + ((W - L - R) * (i + 0.5)) / n;
   const y = (v: number) => T + (H - T - B) * (1 - (v - lo) / (hi - lo));
-  const salto = Math.ceil(n / 14);
-  const larg = Math.min(tipo === 'pilha' ? 40 : 26, ((W - L - R) / n) * 0.7 / (tipo === 'pilha' ? 1 : series.length));
+  const salto = Math.ceil(n / Math.max(4, Math.floor((W - L - R) / 46)));
+  const larg = Math.min(tipo === 'pilha' ? 44 : 28, ((W - L - R) / n) * 0.7 / (tipo === 'pilha' ? 1 : series.length));
 
   return (
-    <div style={{ position: 'relative' }}>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" style={{ display: 'block', overflow: 'visible' }}
+    <div ref={caixa} style={{ position: 'relative' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} role="img" style={{ display: 'block', overflow: 'visible' }}
         onMouseLeave={() => setSel(null)}>
         {ticks.map((t) => (
           <g key={t}>
             <line x1={L} x2={W - R} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'var(--borda-forte)' : 'var(--linha)'} />
-            <text x={L - 8} y={y(t) + 4} textAnchor="end" fontSize="11" fill="var(--suave)">{fmt(t)}</text>
+            <text x={L - 8} y={y(t) + 4} textAnchor="end" fontSize="12" fill="var(--suave)">{fmt(t)}</text>
           </g>
         ))}
         {meses.map((m, i) => i % salto !== 0 ? null : (
-          <text key={m.competencia} x={x(i)} y={H - 8} textAnchor="middle" fontSize="11" fill="var(--suave)">{rotMes(m.competencia)}</text>
+          <text key={m.competencia} x={x(i)} y={H - 8} textAnchor="middle" fontSize="12" fill="var(--suave)">{rotMes(m.competencia)}</text>
         ))}
         {tipo === 'barra' && series.map((s, k) => s.valores.map((v, i) => v == null ? null : (
           <rect key={`${k}-${i}`} x={x(i) - (larg * series.length) / 2 + k * larg + 1} width={Math.max(2, larg - 2)}
@@ -132,6 +143,16 @@ function Variacao({ atual, antes, inverso, fmt }: { atual: number; antes: number
   return <span className="pequeno" style={{ color: bom ? 'var(--marca-escura)' : 'var(--atraso)', fontWeight: 600 }}>{d > 0 ? '▲' : '▼'} {fmt(Math.abs(d))} vs. mês anterior</span>;
 }
 
+function Cartao({ titulo, sub, cheio, children }: { titulo: string; sub?: React.ReactNode; cheio?: boolean; children: React.ReactNode }) {
+  return (
+    <section className="cartao pad grafico" style={cheio ? { gridColumn: '1 / -1' } : undefined}>
+      <h2>{titulo}</h2>
+      {sub && <div className="suave pequeno" style={{ marginTop: 2 }}>{sub}</div>}
+      <div style={{ marginTop: 14 }}>{children}</div>
+    </section>
+  );
+}
+
 const lerPeriodo = () => { try { return localStorage.getItem('periodo') ?? '12m'; } catch { return '12m'; } };
 
 export function Historico() {
@@ -143,6 +164,7 @@ export function Historico() {
   const [tabela, setTabela] = useState(true);
   const anos = [...new Set([...(base?.competencias ?? []), comp].map((c) => c.slice(0, 4)))].sort().reverse();
   const nomePeriodo = periodo === 'tudo' ? 'todo o histórico' : /^\d{4}$/.test(periodo) ? periodo : 'os últimos 12 meses';
+  const rotPeriodo = periodo === 'tudo' ? 'todo o período' : /^\d{4}$/.test(periodo) ? periodo : '12 meses';
   if (!dados) return <Carregando erro={erro} />;
   const meses = dados;
   const iUlt = meses.map((m) => m.temDados).lastIndexOf(true);
@@ -191,82 +213,70 @@ export function Historico() {
         ))}
       </div>
 
-      <div className="grade2">
-        <section className="cartao pad" style={{ gridColumn: '1 / -1' }}>
-          <h2 style={{ marginBottom: 4 }}>Faturamento, caixa e despesas</h2>
-          <div className="suave pequeno" style={{ marginBottom: 12 }}>Faturamento é o que foi cobrado no mês; caixa é o que realmente entrou (cartão e Gympass chegam no mês seguinte).</div>
-          <Quadro meses={meses} tipo="linha" fmt={curto} series={[
+      <div className="graficos">
+        <Cartao cheio titulo="Faturamento, caixa e despesas" sub="Faturamento é o que foi cobrado no mês; caixa é o que realmente entrou (cartão e Gympass chegam no mês seguinte).">
+          <Quadro meses={meses} tipo="linha" fmt={curto} H={300} series={[
             { nome: 'Faturamento', cor: COR.azul, valores: comDados(meses, (m) => m.faturamento) },
             { nome: 'Caixa', cor: COR.marca, valores: comDados(meses, (m) => m.caixa) },
             { nome: 'Despesas', cor: COR.atraso, valores: comDados(meses, (m) => m.despesas), tracejada: true },
           ]} />
-        </section>
+        </Cartao>
 
-        <section className="cartao pad">
-          <h2 style={{ marginBottom: 4 }}>Sobra do mês</h2>
-          <div className="suave pequeno" style={{ marginBottom: 12 }}>Caixa menos despesas. Média: <Num v={media((m) => m.sobra)} />.</div>
+        <Cartao titulo="Sobra do mês" sub={<>Caixa menos despesas. Média: <Num v={media((m) => m.sobra)} />.</>}>
           <Quadro meses={meses} tipo="barra" fmt={curto} series={[{ nome: 'Sobra', cor: COR.marca, valores: comDados(meses, (m) => m.sobra) }]} />
-        </section>
+        </Cartao>
 
-        <section className="cartao pad">
-          <h2 style={{ marginBottom: 4 }}>Alunos pagantes</h2>
-          <div className="suave pequeno" style={{ marginBottom: 12 }}>Média: {Math.round(media((m) => m.alunos))} alunos por mês.</div>
+        <Cartao titulo="Alunos pagantes" sub={`Média: ${Math.round(media((m) => m.alunos))} alunos por mês.`}>
           <Quadro meses={meses} tipo="barra" fmt={(n) => String(Math.round(n))} series={[{ nome: 'Alunos', cor: COR.azul, valores: comDados(meses, (m) => m.alunos) }]} />
-        </section>
+        </Cartao>
 
-        <section className="cartao pad">
-          <h2 style={{ marginBottom: 4 }}>Ticket médio</h2>
-          <div className="suave pequeno" style={{ marginBottom: 12 }}>Faturamento dividido pelos alunos pagantes. Média: <Num v={media((m) => m.ticket)} />.</div>
+        <Cartao titulo="Ticket médio" sub={<>Faturamento dividido pelos alunos pagantes. Média: <Num v={media((m) => m.ticket)} />.</>}>
           <Quadro meses={meses} tipo="linha" fmt={curto} series={[{ nome: 'Ticket médio', cor: COR.marca, valores: comDados(meses, (m) => m.ticket) }]} />
-        </section>
+        </Cartao>
 
-        <section className="cartao pad" style={{ gridColumn: '1 / -1' }}>
-          <h2 style={{ marginBottom: 4 }}>Despesas mês a mês</h2>
-          <div className="suave pequeno" style={{ marginBottom: 12 }}>Contas, salários e repasses, por categoria. Média: <Num v={media((m) => m.despesas)} /> por mês.</div>
-          <Quadro meses={meses} tipo="pilha" fmt={curto} series={cats.map((c) => ({ nome: c, cor: corCat(c), valores: comDados(meses, (m) => m.despesasPor?.[c] ?? 0) }))} />
-          {cats.length === 0 && <div className="suave">Sem despesas em {nomePeriodo}.</div>}
-        </section>
-
-        <section className="cartao pad" style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <h2>Distribuição das despesas ({periodo === 'tudo' ? 'todo o período' : /^\d{4}$/.test(periodo) ? periodo : '12 meses'})</h2>
-          {cats.map((c) => (
-            <div key={c} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span><i style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: corCat(c), marginRight: 6 }} />{c}</span>
-                <span><Num v={totalCat(c)} /> <span className="suave pequeno">{pct((totalCat(c) / (totalDesp || 1)) * 100)}</span></span>
-              </div>
-              <div className="barra"><i style={{ width: `${(totalCat(c) / (totalDesp || 1)) * 100}%`, background: corCat(c) }} /></div>
-            </div>
-          ))}
-          {cats.length > 0 && <div className="suave pequeno">Total no período: <Num v={totalDesp} />.</div>}
-        </section>
-
-        <section className="cartao pad">
-          <h2 style={{ marginBottom: 4 }}>Inadimplência</h2>
-          <div className="suave pequeno" style={{ marginBottom: 12 }}>Parte do faturamento que não foi paga. Média: {pct(media((m) => m.inadimplencia))}.</div>
+        <Cartao titulo="Inadimplência" sub={`Parte do faturamento que não foi paga. Média: ${pct(media((m) => m.inadimplencia))}.`}>
           <Quadro meses={meses} tipo="linha" fmt={pct} series={[{ nome: 'Inadimplência', cor: COR.atraso, valores: comDados(meses, (m) => m.inadimplencia) }]} />
-        </section>
+        </Cartao>
 
-        <section className="cartao pad">
-          <h2 style={{ marginBottom: 4 }}>Entradas e saídas de alunos</h2>
-          <div className="suave pequeno" style={{ marginBottom: 12 }}>Novos = primeira mensalidade no mês. Saídas = pagou no mês anterior e não neste.</div>
+        <Cartao titulo="Entradas e saídas de alunos" sub="Novos = primeira mensalidade no mês. Saídas = pagou no mês anterior e não neste.">
           <Quadro meses={meses} tipo="barra" fmt={(n) => String(Math.round(n))} series={[
             { nome: 'Novos', cor: COR.marca, valores: meses.map((m) => m.novos) },
             { nome: 'Saídas', cor: COR.atraso, valores: meses.map((m) => m.saidas) },
           ]} />
-        </section>
-      </div>
+        </Cartao>
 
-      <section className="cartao pad" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <h2>Faturamento por modalidade ({periodo === 'tudo' ? 'todo o período' : /^\d{4}$/.test(periodo) ? periodo : '12 meses'})</h2>
-        {mods.map((nome) => (
-          <div key={nome} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>{nome}</span><Num v={totalMod(nome)} /></div>
-            <div className="barra"><i style={{ width: `${(totalMod(nome) / maxMod) * 100}%` }} /></div>
+        <Cartao titulo="Despesas mês a mês" sub={<>Contas, salários e repasses, por categoria. Média: <Num v={media((m) => m.despesas)} /> por mês.</>}>
+          <Quadro meses={meses} tipo="pilha" fmt={curto} series={cats.map((c) => ({ nome: c, cor: corCat(c), valores: comDados(meses, (m) => m.despesasPor?.[c] ?? 0) }))} />
+          {cats.length === 0 && <div className="suave">Sem despesas em {nomePeriodo}.</div>}
+        </Cartao>
+
+        <Cartao titulo={`Distribuição das despesas (${rotPeriodo})`} sub={cats.length > 0 ? <>Total no período: <Num v={totalDesp} />.</> : undefined}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {cats.map((c) => (
+              <div key={c} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span><i style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: corCat(c), marginRight: 6 }} />{c}</span>
+                  <span><Num v={totalCat(c)} /> <span className="suave pequeno">{pct((totalCat(c) / (totalDesp || 1)) * 100)}</span></span>
+                </div>
+                <div className="barra"><i style={{ width: `${(totalCat(c) / (totalDesp || 1)) * 100}%`, background: corCat(c) }} /></div>
+              </div>
+            ))}
+            {cats.length === 0 && <div className="suave">Sem despesas em {nomePeriodo}.</div>}
           </div>
-        ))}
-        {mods.length === 0 && <div className="suave">Sem dados em {nomePeriodo}.</div>}
-      </section>
+        </Cartao>
+
+        <Cartao cheio titulo={`Faturamento por modalidade (${rotPeriodo})`}>
+          <div className="mods">
+            {mods.map((nome) => (
+              <div key={nome} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>{nome}</span><Num v={totalMod(nome)} /></div>
+                <div className="barra"><i style={{ width: `${(totalMod(nome) / maxMod) * 100}%` }} /></div>
+              </div>
+            ))}
+          </div>
+          {mods.length === 0 && <div className="suave">Sem dados em {nomePeriodo}.</div>}
+        </Cartao>
+      </div>
 
       <section className="cartao">
         <div style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

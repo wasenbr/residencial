@@ -34,6 +34,9 @@ h2 { margin: 0; font-size: 16px; font-weight: 700; }
 .pad { padding: 20px; }
 .grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px; }
 .grade2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.graficos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
+.grafico { min-width: 0; }
+.mods { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 32px; }
 .kpi { padding: 20px; display: flex; flex-direction: column; gap: 6px; }
 .kpi .rot { font-size: 13px; color: var(--suave); font-weight: 500; }
 .kpi .val { font-size: 26px; text-align: left; }
@@ -98,6 +101,9 @@ button.modalidade-link:focus-visible { outline: 2px solid var(--marca); outline-
 .item-lista { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 64px; padding: 12px 16px; border-radius: 12px; background: #fff; border: 1px solid var(--borda); width: 100%; text-align: left; cursor: pointer; }
 
 /* Celular */
+@media (max-width: 1100px) {
+  .graficos, .mods { grid-template-columns: minmax(0, 1fr); }
+}
 @media (max-width: 860px) {
   .menu { display: none; }
   .conteudo { padding: 20px 16px 96px; gap: 18px; }
