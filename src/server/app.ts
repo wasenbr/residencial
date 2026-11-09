@@ -100,7 +100,7 @@ export function criarApp() {
   // ---------- Base ----------
   app.get('/bootstrap', async (c) => {
     const db = c.env.DB;
-    const [config, modalidades, turmas, professores, planos, fixas, comps, fech] = await Promise.all([
+    const [config, modalidades, turmas, professores, planos, fixas, comps, fech, alunosMod] = await Promise.all([
       carregarConfig(db),
       db.prepare('SELECT * FROM modalidades ORDER BY ordem').all(),
       db.prepare(`SELECT t.*, (SELECT COUNT(*) FROM matriculas m JOIN alunos a ON a.id = m.aluno_id WHERE m.turma_id = t.id AND a.ativo = 1) AS ocupadas
@@ -110,8 +110,12 @@ export function criarApp() {
       db.prepare('SELECT * FROM despesas_fixas WHERE ativo = 1 ORDER BY dia').all(),
       db.prepare('SELECT DISTINCT competencia FROM mensalidades UNION SELECT DISTINCT competencia FROM despesas ORDER BY competencia DESC').all(),
       db.prepare('SELECT competencia FROM fechamentos').all(),
+      db.prepare(`SELECT t.modalidade_id, COUNT(DISTINCT m.aluno_id) AS n FROM matriculas m
+                  JOIN alunos a ON a.id = m.aluno_id JOIN turmas t ON t.id = m.turma_id
+                  WHERE t.ativo = 1 AND a.ativo = 1 GROUP BY t.modalidade_id`).all(),
     ]);
     return c.json({
+      alunosPorModalidade: Object.fromEntries((alunosMod.results as { modalidade_id: number; n: number }[]).map((x) => [x.modalidade_id, x.n])),
       config, modalidades: modalidades.results, turmas: turmas.results, professores: professores.results,
       planos: planos.results, despesasFixas: fixas.results,
       competencias: (comps.results as { competencia: string }[]).map((x) => x.competencia),
