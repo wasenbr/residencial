@@ -9,6 +9,7 @@ export interface Base {
   config: Config;
   modalidades: Modalidade[];
   turmas: TurmaComVagas[];
+  alunosPorModalidade: Record<number, number>;
   professores: Professor[];
   planos: Plano[];
   despesasFixas: DespesaFixa[];

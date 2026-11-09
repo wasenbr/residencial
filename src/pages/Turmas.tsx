@@ -38,7 +38,7 @@ export function Turmas() {
         if (!ts.length) return null;
         return (
           <section key={m.id} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <h2>{m.nome} <span className="suave pequeno" style={{ fontWeight: 400 }}>· {ts.reduce((s, t) => s + t.ocupadas, 0)} matrículas</span></h2>
+            <h2>{m.nome} <span className="suave pequeno" style={{ fontWeight: 400 }}>· {base.alunosPorModalidade?.[m.id] ?? 0} alunos · {ts.reduce((s, t) => s + t.ocupadas, 0)} matrículas</span></h2>
             <div className="grade2">
               {ts.map((t) => {
                 const cheia = t.vagas ? t.ocupadas >= t.vagas : false;
