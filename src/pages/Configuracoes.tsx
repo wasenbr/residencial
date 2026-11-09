@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { post, put } from '../api';
 import type { Config, DespesaFixa, Plano, Professor } from '../shared/tipos';
+import { rotuloMeses } from '../shared/comp';
 import { useApp } from '../store';
 import { Botao, Campo, Carregando, Modal, Num, Topo } from '../ui';
 
@@ -54,9 +55,9 @@ export function Configuracoes() {
       <section className="cartao">
         <div style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between' }}><h2>Planos</h2><Botao pequeno onClick={() => setNovoPlano(true)}>Adicionar</Botao></div>
         <div className="tabela-wrap"><table className="tbl">
-          <thead><tr><th>Plano</th><th>Categoria</th><th>Período</th><th className="d">Valor</th></tr></thead>
+          <thead><tr><th>Plano</th><th>Categoria</th><th>Duração</th><th className="d">Valor</th></tr></thead>
           <tbody>{base.planos.map((p) => (
-            <tr key={p.id}><td>{p.nome}</td><td>{p.categoria}</td><td>{p.periodo}</td>
+            <tr key={p.id}><td>{p.nome}</td><td>{p.categoria}</td><td>{rotuloMeses(p.meses)}</td>
               <td className="d"><input className="entrada" style={{ width: 110, textAlign: 'right' }} type="number" defaultValue={p.valor} onBlur={(e) => Number(e.target.value) !== p.valor && atualizar(() => put(`/planos/${p.id}`, { valor: Number(e.target.value) }))} aria-label={`Valor de ${p.nome}`} /></td></tr>
           ))}</tbody>
         </table>
@@ -97,7 +98,7 @@ export function Configuracoes() {
 
 function NovoPlano({ onFechar, onSalvo }: { onFechar: () => void; onSalvo: () => void }) {
   const { toast } = useApp();
-  const [f, setF] = useState<Partial<Plano>>({ nome: '', categoria: 'frequencia', aulas_semana: 3, periodo: 'mensal', valor: 0 });
+  const [f, setF] = useState<Partial<Plano>>({ nome: '', categoria: 'frequencia', aulas_semana: 3, meses: 1, valor: 0 });
   return (
     <Modal titulo="Novo plano" onFechar={onFechar}>
       <div className="form">
@@ -107,10 +108,11 @@ function NovoPlano({ onFechar, onSalvo }: { onFechar: () => void; onSalvo: () =>
           <Campo rotulo="Aulas por semana"><input type="number" value={f.aulas_semana ?? ''} onChange={(e) => setF({ ...f, aulas_semana: Number(e.target.value) })} /></Campo>
         </div>
         <div className="linha-campos">
-          <Campo rotulo="Período"><select value={f.periodo} onChange={(e) => setF({ ...f, periodo: e.target.value as Plano['periodo'] })}><option value="mensal">Mensal</option><option value="semestral">Semestral</option><option value="anual">Anual</option></select></Campo>
+          <Campo rotulo="Duração (meses)"><input type="number" min={1} max={60} value={f.meses ?? 1} onChange={(e) => setF({ ...f, meses: Number(e.target.value) })} aria-describedby="dur-plano" /></Campo>
           <Campo rotulo="Valor mensal (R$)"><input type="number" value={f.valor} onChange={(e) => setF({ ...f, valor: Number(e.target.value) })} /></Campo>
         </div>
       </div>
+      <div className="suave pequeno" id="dur-plano">1 = mensal, 3 = trimestral, 6 = semestral, 12 = anual, ou qualquer outro número (ex.: 13). Acima de 1 mês o aluno ganha um contrato com aviso de renovação.</div>
       <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}><Botao onClick={onFechar}>Cancelar</Botao><Botao tipo="primario" desligado={!f.nome} onClick={async () => { try { await post('/planos', f); onSalvo(); } catch (e) { toast(String((e as Error).message), true); } }}>Adicionar</Botao></div>
     </Modal>
   );

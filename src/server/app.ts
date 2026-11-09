@@ -3,7 +3,7 @@ import type {
   Aluno, Config, Contrato, DespesaFixa, Mensalidade, Pagamento, Plano, Professor,
 } from '../shared/tipos';
 import { FORMAS } from '../shared/tipos';
-import { compAtual, diffMeses, somarMeses, validaComp } from '../shared/comp';
+import { compAtual, diffMeses, dividirValor, periodoDeMeses, somarMeses, validaComp } from '../shared/comp';
 import { calcularResumo, type DadosResumo } from '../shared/resumo';
 import { importar } from '../import/importar';
 import { chaveNome } from '../shared/nomes';
@@ -36,6 +36,15 @@ async function exigeAberto(db: D1Database, comp: string) {
   if (await fechado(db, comp)) throw new Erro(409, `${comp} já está fechado. Reabra o mês para alterar.`);
 }
 
+// Dinheiro/Pix/débito entram no caixa do mês do recebimento; crédito e Gympass, no mês seguinte.
+function caixaDe(forma: Pagamento['forma'], data: string, cfg: Config): string {
+  const mesData = data.slice(0, 7);
+  if (forma === 'gympass' || (forma === 'credito' && cfg.cartao_caixa === 'seguinte')) return somarMeses(mesData, 1);
+  return mesData;
+}
+
+const validaData = (d: unknown): d is string => typeof d === 'string' && /^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(d);
+
 export async function resumoDoMes(db: D1Database, comp: string) {
   const ant = somarMeses(comp, -1);
   const seg = somarMeses(comp, 1);
@@ -49,7 +58,7 @@ export async function resumoDoMes(db: D1Database, comp: string) {
     db.prepare('SELECT * FROM mensalidades WHERE competencia = ?').bind(comp).all(),
     db.prepare('SELECT p.* FROM pagamentos p JOIN mensalidades m ON m.id = p.mensalidade_id WHERE m.competencia = ? AND m.cancelada = 0').bind(comp).all(),
     db.prepare('SELECT p.*, m.competencia FROM pagamentos p JOIN mensalidades m ON m.id = p.mensalidade_id WHERE p.caixa = ? AND m.cancelada = 0').bind(comp).all(),
-    db.prepare('SELECT p.* FROM pagamentos p JOIN mensalidades m ON m.id = p.mensalidade_id WHERE m.competencia = ? AND p.caixa = ? AND m.cancelada = 0').bind(comp, seg).all(),
+    db.prepare('SELECT p.* FROM pagamentos p JOIN mensalidades m ON m.id = p.mensalidade_id WHERE substr(p.data, 1, 7) = ? AND p.caixa = ? AND m.cancelada = 0').bind(comp, seg).all(),
     db.prepare("SELECT COALESCE(SUM(p.valor),0) AS v FROM pagamentos p JOIN mensalidades m ON m.id = p.mensalidade_id WHERE m.competencia = ? AND p.forma = 'gympass' AND m.cancelada = 0").bind(ant).first<{ v: number }>(),
     db.prepare('SELECT * FROM gympass_repasses WHERE competencia = ?').bind(ant).first(),
     db.prepare('SELECT 1 AS x FROM mensalidades WHERE competencia = ? LIMIT 1').bind(ant).first(),
@@ -93,7 +102,7 @@ export function criarApp() {
       db.prepare(`SELECT t.*, (SELECT COUNT(*) FROM matriculas m JOIN alunos a ON a.id = m.aluno_id WHERE m.turma_id = t.id AND a.ativo = 1) AS ocupadas
                   FROM turmas t WHERE t.ativo = 1 ORDER BY t.modalidade_id, t.horario, t.nome`).all(),
       db.prepare('SELECT * FROM professores WHERE ativo = 1').all(),
-      db.prepare('SELECT * FROM planos WHERE ativo = 1 ORDER BY categoria, aulas_semana, periodo').all(),
+      db.prepare('SELECT * FROM planos WHERE ativo = 1 ORDER BY categoria, aulas_semana, meses').all(),
       db.prepare('SELECT * FROM despesas_fixas WHERE ativo = 1 ORDER BY dia').all(),
       db.prepare('SELECT DISTINCT competencia FROM mensalidades UNION SELECT DISTINCT competencia FROM despesas ORDER BY competencia DESC').all(),
       db.prepare('SELECT competencia FROM fechamentos').all(),
@@ -165,13 +174,19 @@ export function criarApp() {
   app.get('/alunos', async (c) => {
     const db = c.env.DB;
     const comp = compDe(c);
-    const [alunos, mats, contratos, mens, pags] = await Promise.all([
+    const [alunos, mats, contratos, mens, pags, adiantados] = await Promise.all([
       db.prepare('SELECT * FROM alunos ORDER BY nome COLLATE NOCASE').all(),
       db.prepare('SELECT m.aluno_id, m.turma_id, t.nome AS turma, t.modalidade_id FROM matriculas m JOIN turmas t ON t.id = m.turma_id').all(),
       db.prepare('SELECT * FROM contratos WHERE encerrado_em IS NULL').all(),
       db.prepare('SELECT id, aluno_id, valor FROM mensalidades WHERE competencia = ? AND cancelada = 0').bind(comp).all(),
       db.prepare('SELECT p.mensalidade_id, p.valor FROM pagamentos p JOIN mensalidades m ON m.id = p.mensalidade_id WHERE m.competencia = ?').bind(comp).all(),
+      // Último mês futuro já quitado (pagamento adiantado).
+      db.prepare(`SELECT m.aluno_id, MAX(m.competencia) AS ate FROM mensalidades m
+                  WHERE m.competencia > ? AND m.cancelada = 0
+                    AND m.valor <= COALESCE((SELECT SUM(valor) FROM pagamentos WHERE mensalidade_id = m.id), 0) + 0.009
+                  GROUP BY m.aluno_id`).bind(comp).all(),
     ]);
+    const pagoAte = new Map((adiantados.results as { aluno_id: number; ate: string }[]).map((x) => [x.aluno_id, x.ate]));
     const pago = new Map<number, number>();
     for (const p of pags.results as { mensalidade_id: number; valor: number }[]) pago.set(p.mensalidade_id, (pago.get(p.mensalidade_id) ?? 0) + p.valor);
     const dev = new Map<number, { devido: number; pago: number }>();
@@ -186,7 +201,7 @@ export function criarApp() {
       const d = dev.get(a.id);
       return {
         ...a, turmas: mt.map((x) => ({ id: x.turma_id, nome: x.turma })), contrato,
-        devido: d?.devido ?? 0, pago: d?.pago ?? 0,
+        devido: d?.devido ?? 0, pago: d?.pago ?? 0, pago_ate: pagoAte.get(a.id) ?? null,
       };
     });
     return c.json(lista);
@@ -215,7 +230,7 @@ export function criarApp() {
     const b = await c.req.json<{
       nome: string; telefone?: string; nascimento?: string; responsavel?: string; responsavel_tel?: string; familia?: string;
       origem?: 'particular' | 'gympass'; observacoes?: string; turmas?: number[];
-      valor?: number; plano?: string; periodo?: 'mensal' | 'semestral' | 'anual'; competencia?: string; modalidade_id?: number;
+      valor?: number; plano?: string; periodo?: 'mensal' | 'semestral' | 'anual'; meses?: number; competencia?: string; modalidade_id?: number;
     }>();
     if (!b.nome?.trim()) throw new Erro(400, 'Informe o nome do aluno.');
     const comp = b.competencia ?? compAtual();
@@ -232,10 +247,11 @@ export function criarApp() {
       const cfg = await carregarConfig(db);
       const venc = `${comp}-${String(cfg.dia_vencimento).padStart(2, '0')}`;
       let contratoId: number | null = null;
-      const periodo = b.periodo ?? 'mensal';
-      if (periodo !== 'mensal') {
+      const meses = b.meses ?? (b.periodo === 'semestral' ? 6 : b.periodo === 'anual' ? 12 : 1);
+      if (meses > 1) {
+        const periodo = periodoDeMeses(meses);
         const cr = await db.prepare('INSERT INTO contratos (aluno_id, plano, periodo, valor_mensal, inicio, meses) VALUES (?,?,?,?,?,?)')
-          .bind(id, b.plano ?? periodo, periodo, b.valor, comp, periodo === 'semestral' ? 6 : 12).run();
+          .bind(id, b.plano ?? periodo, periodo, b.valor, comp, meses).run();
         contratoId = cr.meta.last_row_id;
       }
       const mr = await db.prepare('INSERT INTO mensalidades (aluno_id, contrato_id, competencia, modalidade_id, descricao, valor, vencimento) VALUES (?,?,?,?,?,?,?)')
@@ -281,6 +297,118 @@ export function criarApp() {
       db.prepare('DELETE FROM alunos WHERE id = ?').bind(origem),
     ]);
     return c.json({ ok: true });
+  });
+
+  // Contrato novo para um aluno que já está cadastrado. Vale a partir de um mês
+  // que já tem a mensalidade dele; os meses seguintes copiam dela.
+  app.post('/alunos/:id/contratos', async (c) => {
+    const db = c.env.DB;
+    const id = Number(c.req.param('id'));
+    const b = await c.req.json<{ plano?: string; valor_mensal: number; meses: number; inicio: string }>();
+    if (!validaComp(b.inicio)) throw new Erro(400, 'Informe o mês de início.');
+    if (!(b.valor_mensal > 0)) throw new Erro(400, 'Informe o valor mensal.');
+    if (!Number.isInteger(b.meses) || b.meses < 1 || b.meses > 60) throw new Erro(400, 'Duração inválida (1 a 60 meses).');
+    await exigeAberto(db, b.inicio);
+    const mens = (await db.prepare(`
+      SELECT m.id, m.competencia, COALESCE((SELECT SUM(valor) FROM pagamentos WHERE mensalidade_id = m.id), 0) AS pago
+      FROM mensalidades m WHERE m.aluno_id = ? AND m.competencia >= ? AND m.cancelada = 0`).bind(id, b.inicio).all()).results as { id: number; competencia: string; pago: number }[];
+    if (!mens.some((m) => m.competencia === b.inicio)) {
+      throw new Erro(400, `O aluno ainda não tem mensalidade em ${b.inicio}. Gere o mês antes ou comece o contrato em outro mês.`);
+    }
+    // Só mexe nos meses com uma mensalidade só (com várias modalidades, o valor de cada uma fica como está).
+    const porMes = new Map<string, number>();
+    for (const m of mens) porMes.set(m.competencia, (porMes.get(m.competencia) ?? 0) + 1);
+    const fim = somarMeses(b.inicio, b.meses);
+    const plano = b.plano?.trim() || periodoDeMeses(b.meses);
+    const stmts: D1PreparedStatement[] = [
+      db.prepare('UPDATE contratos SET encerrado_em = ? WHERE aluno_id = ? AND encerrado_em IS NULL').bind(hoje(), id),
+      db.prepare('INSERT INTO contratos (aluno_id, plano, periodo, valor_mensal, inicio, meses) VALUES (?,?,?,?,?,?)')
+        .bind(id, plano, periodoDeMeses(b.meses), b.valor_mensal, b.inicio, b.meses),
+    ];
+    for (const m of mens) {
+      if (m.competencia >= fim) continue;
+      const novoContrato = 'contrato_id = (SELECT MAX(id) FROM contratos WHERE aluno_id = ?)';
+      if (porMes.get(m.competencia) === 1 && m.pago === 0) {
+        stmts.push(db.prepare(`UPDATE mensalidades SET ${novoContrato}, valor = ?, descricao = ? WHERE id = ?`).bind(id, b.valor_mensal, plano, m.id));
+      } else {
+        stmts.push(db.prepare(`UPDATE mensalidades SET ${novoContrato} WHERE id = ?`).bind(id, m.id));
+      }
+    }
+    await db.batch(stmts);
+    return c.json({ ok: true }, 201);
+  });
+
+  // Pagamento adiantado de vários meses (ex.: 3 meses de uma vez, plano de 13 meses).
+  // Faturamento: cada mês recebe a sua parte (total ÷ meses). Caixa: tudo no mês do recebimento.
+  app.post('/alunos/:id/adiantado', async (c) => {
+    const db = c.env.DB;
+    const id = Number(c.req.param('id'));
+    const b = await c.req.json<{
+      inicio: string; meses: number; valor_total: number; forma: Pagamento['forma']; data?: string;
+      modalidade_id?: number | null; descricao?: string; contrato?: 'novo' | 'atual';
+    }>();
+    const aluno = await db.prepare('SELECT * FROM alunos WHERE id = ?').bind(id).first<Aluno>();
+    if (!aluno) throw new Erro(404, 'Aluno não encontrado.');
+    if (!validaComp(b.inicio)) throw new Erro(400, 'Informe o primeiro mês pago.');
+    if (!Number.isInteger(b.meses) || b.meses < 2 || b.meses > 36) throw new Erro(400, 'Informe de 2 a 36 meses.');
+    if (!(b.valor_total > 0)) throw new Erro(400, 'Informe o valor recebido.');
+    if (!FORMAS.includes(b.forma) || b.forma === 'gympass') throw new Erro(400, 'Forma de pagamento inválida para pagamento adiantado.');
+    const data = b.data ?? hoje();
+    if (!validaData(data)) throw new Erro(400, 'Data do pagamento inválida.');
+    const cfg = await carregarConfig(db);
+    const caixa = caixaDe(b.forma, data, cfg);
+    const comps = Array.from({ length: b.meses }, (_, i) => somarMeses(b.inicio, i));
+    for (const comp of new Set([...comps, caixa])) await exigeAberto(db, comp);
+
+    // Modalidade e descrição: as informadas, ou as da mensalidade mais recente do aluno.
+    const ultima = await db.prepare('SELECT modalidade_id, descricao FROM mensalidades WHERE aluno_id = ? AND cancelada = 0 ORDER BY competencia DESC, id DESC LIMIT 1')
+      .bind(id).first<{ modalidade_id: number | null; descricao: string | null }>();
+    const modalidadeId = b.modalidade_id !== undefined ? b.modalidade_id : ultima?.modalidade_id ?? null;
+    const descricao = b.descricao?.trim() || ultima?.descricao || 'Plano adiantado';
+
+    const existentes = (await db.prepare(`
+      SELECT m.id, m.competencia, m.modalidade_id, COALESCE((SELECT SUM(valor) FROM pagamentos WHERE mensalidade_id = m.id), 0) AS pago
+      FROM mensalidades m WHERE m.aluno_id = ? AND m.cancelada = 0 AND m.competencia BETWEEN ? AND ?`)
+      .bind(id, comps[0], comps[comps.length - 1]).all()).results as { id: number; competencia: string; modalidade_id: number | null; pago: number }[];
+    const doMes = new Map<string, (typeof existentes)[number]>();
+    for (const m of existentes) {
+      if (m.modalidade_id !== modalidadeId) continue;
+      if (doMes.has(m.competencia)) throw new Erro(409, `${aluno.nome} tem mais de uma mensalidade em ${m.competencia} nessa modalidade. Cancele a duplicada antes.`);
+      if (m.pago > 0) throw new Erro(409, `A mensalidade de ${m.competencia} já tem pagamento. Comece o adiantado no mês seguinte ou remova aquele pagamento.`);
+      doMes.set(m.competencia, m);
+    }
+
+    const ativo = await db.prepare('SELECT * FROM contratos WHERE aluno_id = ? AND encerrado_em IS NULL ORDER BY inicio DESC LIMIT 1').bind(id).first<Contrato>();
+    const modoContrato = b.contrato ?? 'novo';
+    if (modoContrato === 'atual' && !ativo) throw new Erro(400, 'O aluno não tem contrato ativo.');
+    const parcelas = dividirValor(b.valor_total, b.meses);
+    const stmts: D1PreparedStatement[] = [];
+    let contratoSql = '?';
+    let contratoArg: number = ativo?.id ?? 0;
+    if (modoContrato === 'novo') {
+      // O contrato cobre os meses pagos; ao terminar, aparece em "contratos terminando" para renovar.
+      if (ativo) stmts.push(db.prepare('UPDATE contratos SET encerrado_em = ? WHERE id = ?').bind(hoje(), ativo.id));
+      stmts.push(db.prepare('INSERT INTO contratos (aluno_id, plano, periodo, valor_mensal, inicio, meses) VALUES (?,?,?,?,?,?)')
+        .bind(id, descricao, periodoDeMeses(b.meses), parcelas[0], b.inicio, b.meses));
+      contratoSql = '(SELECT MAX(id) FROM contratos WHERE aluno_id = ?)';
+      contratoArg = id;
+    }
+    const insPag = 'INSERT INTO pagamentos (mensalidade_id, valor, forma, data, caixa) VALUES (?,?,?,?,?)';
+    comps.forEach((comp, i) => {
+      const ex = doMes.get(comp);
+      const venc = `${comp}-${String(cfg.dia_vencimento).padStart(2, '0')}`;
+      if (ex) {
+        stmts.push(db.prepare(`UPDATE mensalidades SET contrato_id = ${contratoSql}, valor = ?, adiantado = 1 WHERE id = ?`).bind(contratoArg, parcelas[i], ex.id));
+        stmts.push(db.prepare(insPag).bind(ex.id, parcelas[i], b.forma, data, caixa));
+      } else {
+        stmts.push(db.prepare(`INSERT INTO mensalidades (aluno_id, contrato_id, competencia, modalidade_id, descricao, valor, vencimento, adiantado) VALUES (?, ${contratoSql}, ?,?,?,?,?, 1)`)
+          .bind(id, contratoArg, comp, modalidadeId, descricao, parcelas[i], venc));
+        stmts.push(db.prepare('INSERT INTO pagamentos (mensalidade_id, valor, forma, data, caixa) VALUES (last_insert_rowid(),?,?,?,?)')
+          .bind(parcelas[i], b.forma, data, caixa));
+      }
+    });
+    await db.batch(stmts);
+    return c.json({ meses: b.meses, de: comps[0], ate: comps[comps.length - 1], parcela: parcelas[0], caixa }, 201);
   });
 
   // Contratos que estão no último mês (ou já passaram dele) na competência.
@@ -385,10 +513,10 @@ export function criarApp() {
     await exigeAberto(db, m.competencia);
     const cfg = await carregarConfig(db);
     const data = b.data ?? hoje();
-    const mesData = data.slice(0, 7);
-    // Dinheiro/Pix/débito entram no caixa do mês do recebimento; crédito e Gympass, no mês seguinte.
-    let caixa = mesData;
-    if (b.forma === 'gympass' || (b.forma === 'credito' && cfg.cartao_caixa === 'seguinte')) caixa = somarMeses(mesData, 1);
+    if (!validaData(data)) throw new Erro(400, 'Data do pagamento inválida.');
+    const caixa = caixaDe(b.forma, data, cfg);
+    // O dinheiro não pode entrar no caixa de um mês já fechado.
+    if (caixa !== m.competencia) await exigeAberto(db, caixa);
     const r = await db.prepare('INSERT INTO pagamentos (mensalidade_id, valor, forma, data, caixa) VALUES (?,?,?,?,?)')
       .bind(b.mensalidade_id, b.valor, b.forma, data, caixa).run();
     return c.json({ id: r.meta.last_row_id }, 201);
@@ -417,8 +545,12 @@ export function criarApp() {
     const ant = somarMeses(competencia, -1);
     const cfg = await carregarConfig(db);
     const venc = `${competencia}-${String(cfg.dia_vencimento).padStart(2, '0')}`;
-    const ja = await db.prepare('SELECT COUNT(*) AS n FROM mensalidades WHERE competencia = ?').bind(competencia).first<{ n: number }>();
+    const ja = await db.prepare('SELECT COUNT(*) AS n FROM mensalidades WHERE competencia = ? AND adiantado = 0').bind(competencia).first<{ n: number }>();
     if ((ja?.n ?? 0) > 0) throw new Erro(409, 'Este mês já tem mensalidades.');
+    // Quem pagou adiantado já tem a mensalidade do mês: não duplica.
+    const jaLancadas = new Set(((await db.prepare('SELECT aluno_id, modalidade_id FROM mensalidades WHERE competencia = ? AND cancelada = 0').bind(competencia).all()).results as
+      { aluno_id: number; modalidade_id: number | null }[]).map((x) => `${x.aluno_id}|${x.modalidade_id ?? ''}`));
+    let adiantados = 0;
     const anteriores = (await db.prepare(`
       SELECT m.aluno_id, m.contrato_id, m.modalidade_id, m.descricao, m.valor
       FROM mensalidades m JOIN alunos a ON a.id = m.aluno_id
@@ -429,6 +561,7 @@ export function criarApp() {
     const novas: D1PreparedStatement[] = [];
     let contratosFinalizados = 0;
     for (const m of anteriores) {
+      if (jaLancadas.has(`${m.aluno_id}|${m.modalidade_id ?? ''}`)) { adiantados++; continue; }
       let contratoId = m.contrato_id;
       if (contratoId != null) {
         const atual = contratos.get(contratoId);
@@ -453,7 +586,7 @@ export function criarApp() {
              CASE WHEN f.dia IS NULL THEN NULL ELSE ? || '-' || printf('%02d', f.dia) END, f.id
       FROM despesas_fixas f WHERE f.ativo = 1
         AND NOT EXISTS (SELECT 1 FROM despesas d WHERE d.competencia = ? AND d.despesa_fixa_id = f.id)`).bind(competencia, competencia, competencia).run();
-    return c.json({ mensalidades: novas.length, despesas: f.meta.changes, contratosFinalizados });
+    return c.json({ mensalidades: novas.length, despesas: f.meta.changes, contratosFinalizados, adiantados });
   });
 
   // ---------- Despesas ----------
@@ -597,8 +730,10 @@ export function criarApp() {
   app.post('/planos', async (c) => {
     const b = await c.req.json<Partial<Plano>>();
     if (!b.nome || !(b.valor! >= 0)) throw new Erro(400, 'Informe nome e valor.');
-    const r = await c.env.DB.prepare('INSERT INTO planos (nome, categoria, aulas_semana, periodo, valor) VALUES (?,?,?,?,?)')
-      .bind(b.nome, b.categoria ?? 'frequencia', b.aulas_semana ?? null, b.periodo ?? 'mensal', b.valor).run();
+    const meses = b.meses ?? (b.periodo === 'semestral' ? 6 : b.periodo === 'anual' ? 12 : 1);
+    if (!Number.isInteger(meses) || meses < 1 || meses > 60) throw new Erro(400, 'Duração inválida (1 a 60 meses).');
+    const r = await c.env.DB.prepare('INSERT INTO planos (nome, categoria, aulas_semana, periodo, meses, valor) VALUES (?,?,?,?,?,?)')
+      .bind(b.nome, b.categoria ?? 'frequencia', b.aulas_semana ?? null, periodoDeMeses(meses), meses, b.valor).run();
     return c.json({ id: r.meta.last_row_id }, 201);
   });
   app.put('/planos/:id', async (c) => {
@@ -612,6 +747,9 @@ export function criarApp() {
     const b = await c.req.json<{ competencia: string; arquivo?: string; leitura: Parameters<typeof importar>[1] }>();
     if (!validaComp(b.competencia)) throw new Erro(400, 'Informe o mês da planilha (AAAA-MM).');
     await exigeAberto(c.env.DB, b.competencia);
+    // Reimportar apaga as mensalidades do mês, e com elas os pagamentos adiantados.
+    const adiantadas = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM mensalidades WHERE competencia = ? AND adiantado = 1').bind(b.competencia).first<{ n: number }>();
+    if ((adiantadas?.n ?? 0) > 0) throw new Erro(409, `${b.competencia} já tem mensalidades pagas adiantado. Importar a planilha apagaria esses pagamentos.`);
     const rel = await importar(c.env.DB, b.leitura, b.competencia, b.arquivo ?? null);
     return c.json(rel);
   });

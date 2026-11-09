@@ -52,3 +52,24 @@ export function compDeTexto(texto: string): string | null {
   if (num) return `${num[2]}-${num[1]}`;
   return null;
 }
+
+/** Rótulo legado gravado em contratos.periodo / planos.periodo (o banco só aceita estes três). */
+export function periodoDeMeses(meses: number | null | undefined): 'mensal' | 'semestral' | 'anual' {
+  if (meses != null && meses >= 12) return 'anual';
+  if (meses != null && meses >= 6) return 'semestral';
+  return 'mensal';
+}
+
+/** Nome da duração para mostrar na tela: Mensal, Trimestral, Semestral, Anual ou "13 meses". */
+export function rotuloMeses(meses: number | null | undefined): string {
+  if (meses == null) return 'Sem prazo';
+  const nomes: Record<number, string> = { 1: 'Mensal', 3: 'Trimestral', 6: 'Semestral', 12: 'Anual' };
+  return nomes[meses] ?? `${meses} meses`;
+}
+
+/** Divide um total em n parcelas com centavos exatos; a última absorve a diferença. */
+export function dividirValor(total: number, n: number): number[] {
+  const centavos = Math.round(total * 100);
+  const base = Math.floor(centavos / n);
+  return Array.from({ length: n }, (_, i) => (i === n - 1 ? centavos - base * (n - 1) : base) / 100);
+}

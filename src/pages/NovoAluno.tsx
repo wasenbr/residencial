@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { post } from '../api';
 import { useApp } from '../store';
 import { Botao, Campo, Carregando, Num, Topo } from '../ui';
-import { nomeComp } from '../shared/comp';
+import { nomeComp, rotuloMeses } from '../shared/comp';
 
 export function NovoAluno() {
   const { base, comp, toast, recarregar } = useApp();
@@ -24,7 +24,7 @@ export function NovoAluno() {
   const selecionadas = useMemo(() => base?.turmas.filter((t) => turmas.includes(t.id)) ?? [], [base, turmas]);
   if (!base) return <Carregando />;
   const aulas = selecionadas.reduce((s, t) => s + t.aulas_semana, 0);
-  const planosFreq = base.planos.filter((p) => p.categoria === 'frequencia' && p.periodo === 'mensal');
+  const planosFreq = base.planos.filter((p) => p.categoria === 'frequencia' && (p.meses ?? 1) === 1);
   const sugerido = planosFreq.find((p) => p.aulas_semana === aulas);
   const v = Number(valor.replace(',', '.'));
   const desconto = familia.trim() ? base.config.desconto_familia : 0;
@@ -46,7 +46,7 @@ export function NovoAluno() {
       const r = await post<{ id: number; mensalidadeId: number | null }>('/alunos', {
         nome, telefone: tel || undefined, origem, familia: familia || undefined,
         responsavel: menor ? resp || undefined : undefined, responsavel_tel: menor ? respTel || undefined : undefined,
-        turmas, valor: origem === 'particular' && final > 0 ? final : undefined, plano: plano?.nome, periodo: plano?.periodo ?? 'mensal', competencia: comp,
+        turmas, valor: origem === 'particular' && final > 0 ? final : undefined, plano: plano?.nome, meses: plano?.meses ?? 1, competencia: comp,
         modalidade_id: modalidades.size === 1 ? [...modalidades][0] : undefined,
       });
       await recarregar();
@@ -102,7 +102,7 @@ export function NovoAluno() {
               <Campo rotulo="Plano">
                 <select value={planoId} onChange={(e) => escolherPlano(e.target.value === 'manual' ? 'manual' : Number(e.target.value))}>
                   <option value="manual">Valor combinado</option>
-                  {base.planos.map((p) => <option key={p.id} value={p.id}>{p.nome} · {p.periodo} · R$ {p.valor}</option>)}
+                  {base.planos.map((p) => <option key={p.id} value={p.id}>{p.nome} · {rotuloMeses(p.meses)} · R$ {p.valor}</option>)}
                 </select>
                 {sugerido && planoId === 'manual' && <span className="pequeno" style={{ color: 'var(--marca-escura)' }}>{aulas} aulas por semana → {sugerido.nome} (R$ {sugerido.valor}) <button type="button" className="link" onClick={() => escolherPlano(sugerido.id)}>usar</button></span>}
               </Campo>

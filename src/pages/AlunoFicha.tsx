@@ -1,17 +1,18 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { del, get, post, put } from '../api';
-import { nomeComp, diffMeses } from '../shared/comp';
+import { nomeComp, diffMeses, rotuloMeses, somarMeses } from '../shared/comp';
 import type { Aluno, Contrato, Turma } from '../shared/tipos';
 import { useApp } from '../store';
 import { Botao, Campo, Carregando, FORMA_ROTULO, Modal, Num, Pilula, Topo, useDados } from '../ui';
 import { PagarModal, type Devendo } from '../components/Pagar';
+import { AdiantadoModal, NovoContratoModal } from '../components/Adiantado';
 
 interface Ficha {
   aluno: Aluno;
   turmas: (Turma & { modalidade: string })[];
   contratos: Contrato[];
-  mensalidades: { id: number; competencia: string; modalidade: string | null; descricao: string | null; valor: number; pago: number; formas: string | null; vencimento: string | null; cancelada: number }[];
+  mensalidades: { id: number; competencia: string; modalidade: string | null; descricao: string | null; valor: number; pago: number; formas: string | null; vencimento: string | null; cancelada: number; adiantado: number }[];
   familia: { id: number; nome: string }[];
 }
 
@@ -24,6 +25,8 @@ export function AlunoFicha() {
   const [pagar, setPagar] = useState<Devendo | null>(null);
   const [matricular, setMatricular] = useState(false);
   const [perguntaInativar, setPerguntaInativar] = useState(false);
+  const [adiantado, setAdiantado] = useState(false);
+  const [novoContrato, setNovoContrato] = useState(false);
   if (!dados) return <Carregando erro={erro} />;
   const { aluno, turmas, contratos, mensalidades, familia } = dados;
   const contrato = contratos.find((c) => !c.encerrado_em) ?? null;
@@ -32,6 +35,13 @@ export function AlunoFicha() {
   const devidoMes = doMes.reduce((s, m) => s + m.valor, 0);
   const pagoMes = doMes.reduce((s, m) => s + m.pago, 0);
   const aulas = turmas.reduce((s, t) => s + t.aulas_semana, 0);
+  const ativas = mensalidades.filter((m) => !m.cancelada);
+  const quitada = (c: string) => { const ms = ativas.filter((m) => m.competencia === c); return ms.length > 0 && ms.every((m) => m.valor - m.pago <= 0.009); };
+  // Último mês futuro já pago e primeiro mês ainda não pago (sugestão para o próximo adiantado).
+  const pagoAte = ativas.filter((m) => m.competencia > comp && m.valor - m.pago <= 0.009).map((m) => m.competencia).sort().pop() ?? null;
+  let proximoAPagar = comp;
+  while (quitada(proximoAPagar)) proximoAPagar = somarMeses(proximoAPagar, 1);
+  const valorRecente = ativas.find((m) => m.competencia <= comp)?.valor ?? null;
 
   async function acao(fn: () => Promise<unknown>, ok: string) {
     try { await fn(); toast(ok); atualizar(); await recarregar(); } catch (e) { toast(String((e as Error).message), true); }
@@ -51,7 +61,7 @@ export function AlunoFicha() {
           <h2 style={{ marginBottom: 8 }}>Contrato</h2>
           {contrato ? (
             <>
-              <Linha r="Plano" v={`${contrato.plano} · ${contrato.periodo}`} />
+              <Linha r="Plano" v={`${contrato.plano} · ${rotuloMeses(contrato.meses)}`} />
               <Linha r="Mensalidade" v={<Num v={contrato.valor_mensal} />} />
               <Linha r="Início" v={nomeComp(contrato.inicio)} />
               {mesDoContrato && contrato.meses && <Linha r="Mês" v={`${Math.min(mesDoContrato, contrato.meses)} de ${contrato.meses}${mesDoContrato >= contrato.meses ? ' · termina neste mês' : ''}`} />}
@@ -61,7 +71,13 @@ export function AlunoFicha() {
               </div>
               <div className="pequeno suave" style={{ marginTop: 8 }}>Sem multa por cancelamento. Encerrar cancela as mensalidades futuras.</div>
             </>
-          ) : <div className="suave">Plano mensal, sem prazo de fidelidade.</div>}
+          ) : (
+            <>
+              <div className="suave">Plano mensal, sem prazo de fidelidade.</div>
+              <div style={{ marginTop: 12 }}><Botao pequeno onClick={() => setNovoContrato(true)}>Novo contrato</Botao></div>
+            </>
+          )}
+          {pagoAte && <div style={{ marginTop: 12 }}><Pilula tipo="ok">Pago até {nomeComp(pagoAte)}</Pilula></div>}
         </section>
 
         <section className="cartao pad">
@@ -91,7 +107,10 @@ export function AlunoFicha() {
       <section className="cartao">
         <div style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <h2>Pagamentos</h2>
-          <span className="suave pequeno">{nomeComp(comp)}: <Num v={pagoMes} /> de <Num v={devidoMes} /></span>
+          <span style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span className="suave pequeno">{nomeComp(comp)}: <Num v={pagoMes} /> de <Num v={devidoMes} /></span>
+            {aluno.origem === 'particular' && <Botao pequeno onClick={() => setAdiantado(true)}>Pagar adiantado</Botao>}
+          </span>
         </div>
         <div className="tabela-wrap"><table className="tbl">
           <thead><tr><th>Competência</th><th>Descrição</th><th className="d">Valor</th><th className="esconde-cel">Forma</th><th>Status</th><th /></tr></thead>
@@ -101,7 +120,7 @@ export function AlunoFicha() {
               <tr key={m.id}>
                 <td>{nomeComp(m.competencia)}</td><td>{m.modalidade ?? m.descricao ?? '—'}</td><td className="d"><Num v={m.valor} /></td>
                 <td className="esconde-cel">{m.formas ? m.formas.split(',').map((f) => FORMA_ROTULO[f] ?? f).join(', ') : '—'}</td>
-                <td>{falta <= 0.009 ? <Pilula tipo="ok">Pago</Pilula> : m.pago > 0 ? <Pilula tipo="atraso">Falta <Num v={falta} /></Pilula> : <Pilula tipo="atraso">Em aberto</Pilula>}</td>
+                <td>{m.adiantado ? <><Pilula tipo="info">Adiantado</Pilula> </> : null}{falta <= 0.009 ? <Pilula tipo="ok">Pago</Pilula> : m.pago > 0 ? <Pilula tipo="atraso">Falta <Num v={falta} /></Pilula> : <Pilula tipo="atraso">Em aberto</Pilula>}</td>
                 <td className="d">{falta > 0.009 && <Botao pequeno onClick={() => setPagar({ mensalidade_id: m.id, nome: aluno.nome, descricao: `${m.modalidade ?? ''} ${nomeComp(m.competencia)}`.trim(), aberto: falta })}>Registrar</Botao>}</td>
               </tr>
             );
@@ -110,6 +129,14 @@ export function AlunoFicha() {
         {mensalidades.length === 0 && <div className="vazio">Nenhuma mensalidade ainda.</div>}</div>
       </section>
 
+      {adiantado && (
+        <AdiantadoModal alunoId={aluno.id} nome={aluno.nome} inicioSugerido={proximoAPagar} contratoAtual={contrato}
+          onFechar={() => setAdiantado(false)} onSalvo={() => { setAdiantado(false); atualizar(); void recarregar(); }} />
+      )}
+      {novoContrato && (
+        <NovoContratoModal alunoId={aluno.id} inicioSugerido={comp} valorSugerido={valorRecente}
+          onFechar={() => setNovoContrato(false)} onSalvo={() => { setNovoContrato(false); atualizar(); void recarregar(); }} />
+      )}
       {pagar && <PagarModal item={pagar} onFechar={() => setPagar(null)} onPago={() => { setPagar(null); atualizar(); }} />}
       {editando && <EditarAluno aluno={aluno} onFechar={() => setEditando(false)} onSalvo={() => { setEditando(false); atualizar(); void recarregar(); }} />}
       {perguntaInativar && (

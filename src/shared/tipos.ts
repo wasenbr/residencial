@@ -35,7 +35,7 @@ export interface Turma {
 
 export interface Plano {
   id: number; nome: string; categoria: 'frequencia' | 'personal' | 'fixo';
-  aulas_semana: number | null; periodo: 'mensal' | 'semestral' | 'anual'; valor: number; ativo: number;
+  aulas_semana: number | null; periodo: 'mensal' | 'semestral' | 'anual'; meses: number; valor: number; ativo: number;
 }
 
 export interface Aluno {
@@ -54,7 +54,7 @@ export interface Contrato {
 export interface Mensalidade {
   id: number; aluno_id: number; contrato_id: number | null; competencia: string;
   modalidade_id: number | null; descricao: string | null; valor: number; vencimento: string | null;
-  observacao: string | null; cancelada: number;
+  observacao: string | null; cancelada: number; adiantado: number;
 }
 
 export interface Pagamento {

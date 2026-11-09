@@ -17,7 +17,7 @@ export interface DadosResumo {
   mensalidades: Mensalidade[];          // da competência
   pagamentos: Pagamento[];              // das mensalidades da competência
   pagamentosCaixa: (Pagamento & { competencia: string })[]; // caixa = competência (de qualquer mês)
-  pagamentosCaixaSeguinte: Pagamento[]; // das mensalidades da competência com caixa no mês seguinte
+  pagamentosCaixaSeguinte: Pagamento[]; // recebidos na competência (de qualquer mensalidade) com caixa no mês seguinte
   gympassAnteriorEstimado: number | null; // soma estimada do mês anterior, se ele existir no sistema
   repasseAnterior: GympassRepasse | null;
   mesAnteriorExiste: boolean;
@@ -42,6 +42,8 @@ export interface Resumo {
   competencia: string;
   alunosAtivos: number;
   qtdMensalidades: number;
+  /** O mês já foi gerado/importado (tem mensalidades além das lançadas por pagamento adiantado). */
+  mesGerado: boolean;
   faturamento: number;
   recebido: number;
   aberto: number;
@@ -154,7 +156,8 @@ export function calcularResumo(d: DadosResumo): Resumo {
   let dinheiroMes = 0, creditoCaixa = 0;
   for (const p of d.pagamentosCaixa) {
     if (p.forma === 'gympass') continue;
-    if (p.forma === 'credito' && p.competencia !== d.competencia) creditoCaixa += p.valor;
+    // Crédito recebido em mês anterior (inclusive parcelas de pagamento adiantado).
+    if (p.forma === 'credito' && p.data.slice(0, 7) !== d.competencia) creditoCaixa += p.valor;
     else dinheiroMes += p.valor;
   }
   const saldo = (k: string) => d.saldosImportados.find((s) => s.chave === k)?.valor ?? 0;
@@ -233,6 +236,7 @@ export function calcularResumo(d: DadosResumo): Resumo {
     competencia: d.competencia,
     alunosAtivos: d.alunos.filter((a) => a.ativo).length,
     qtdMensalidades: ativas.length,
+    mesGerado: d.mensalidades.some((m) => !m.adiantado),
     faturamento: r2(faturamento),
     recebido: r2(recebido),
     aberto: r2(aberto),

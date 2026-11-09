@@ -37,7 +37,7 @@ export function Painel() {
         <Link className="btn primario" to="/fechamento">Ver fechamento</Link>
       </Topo>
 
-      {r.qtdMensalidades === 0 && <SemMes comp={comp} onGerado={recarregar} />}
+      {!r.mesGerado && <SemMes comp={comp} onGerado={recarregar} />}
 
       <div className="grade">
         <Kpi rot="Faturamento" valor={r.faturamento} nota={`${r.qtdMensalidades} mensalidades`} />
@@ -122,8 +122,9 @@ export function SemMes({ comp, onGerado }: { comp: string; onGerado: () => void 
   async function gerar() {
     setOcupado(true);
     try {
-      const r = await post<{ mensalidades: number; despesas: number; contratosFinalizados: number }>('/mes/gerar', { competencia: comp });
+      const r = await post<{ mensalidades: number; despesas: number; contratosFinalizados: number; adiantados?: number }>('/mes/gerar', { competencia: comp });
       toast(`${r.mensalidades} mensalidades e ${r.despesas} despesas fixas geradas.` +
+        (r.adiantados ? ` ${r.adiantados} já estavam pagas adiantado.` : '') +
         (r.contratosFinalizados ? ` ${r.contratosFinalizados} contrato(s) terminaram e não foram copiados: renove na ficha do aluno.` : ''));
       await recarregar();
       onGerado();
@@ -131,7 +132,7 @@ export function SemMes({ comp, onGerado }: { comp: string; onGerado: () => void 
   }
   return (
     <div className="faixa info">
-      <span>{nomeComp(comp)} ainda não tem mensalidades. Posso copiar do mês anterior (alunos ativos e contratos vigentes) e criar as despesas fixas.</span>
+      <span>{nomeComp(comp)} ainda não foi gerado. Posso copiar do mês anterior (alunos ativos e contratos vigentes) e criar as despesas fixas.</span>
       <Botao tipo="primario" onClick={gerar} desligado={ocupado}>Gerar {nomeComp(comp, true).toLowerCase()}</Botao>
     </div>
   );
@@ -150,7 +151,7 @@ function Inicio() {
         <div><div className="pequeno suave">{nomeComp(comp)}</div><h1>Olá{base?.config.nome_usuario ? `, ${base.config.nome_usuario}` : ''}</h1></div>
         <Link to="/dashboard" style={{ fontWeight: 600, minHeight: 44, display: 'flex', alignItems: 'center' }}>Ver completo</Link>
       </div>
-      {r.qtdMensalidades === 0 && <SemMes comp={comp} onGerado={recarregar} />}
+      {!r.mesGerado && <SemMes comp={comp} onGerado={recarregar} />}
       <section className="cartao pad" style={{ display: 'flex', flexDirection: 'column', gap: 12, borderRadius: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="suave">Recebido no mês</span><b style={{ color: 'var(--marca-escura)' }}>{Math.round(pct)}%</b></div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}><span className="num" style={{ fontSize: 30 }}>{r.recebido.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })}</span><span className="num suave" style={{ fontSize: 14 }}>de {r.faturamento.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })}</span></div>

@@ -9,7 +9,7 @@ import { SemMes } from './Dashboard';
 
 export interface MensalidadeLinha {
   id: number; aluno_id: number; aluno: string; origem: string; modalidade: string | null; descricao: string | null;
-  valor: number; pago: number; formas: string | null; vencimento: string | null;
+  valor: number; pago: number; formas: string | null; vencimento: string | null; adiantado?: number;
 }
 
 type Filtro = 'todas' | 'atraso' | 'parciais' | 'pagas' | 'gympass';
@@ -53,7 +53,7 @@ export function Mensalidades() {
       <Topo titulo={`Mensalidades · ${nomeComp(comp)}`} sub={<>Vencimento dia {base.config.dia_vencimento} · <Num v={recebido} /> recebidos de <Num v={devido} /></>}>
         <SeletorMes />
       </Topo>
-      {dados.length === 0 && <SemMes comp={comp} onGerado={recarregar} />}
+      {!dados.some((m) => !m.adiantado) && <SemMes comp={comp} onGerado={recarregar} />}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
         <input className="entrada" style={{ maxWidth: 260 }} placeholder="Buscar aluno" value={busca} onChange={(e) => setBusca(e.target.value)} aria-label="Buscar aluno" />
         <div className="fichas">{fichas.map(([k, r]) => <button key={k} className={'ficha' + (filtro === k ? ' ativa' : '')} onClick={() => setFiltro(k)}>{r} · {cont[k]}</button>)}</div>
