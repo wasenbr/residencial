@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { post } from '../api';
 import { dividirValor, nomeComp, rotuloMeses, somarMeses } from '../shared/comp';
-import type { Contrato } from '../shared/tipos';
+import type { Aluno, Contrato } from '../shared/tipos';
 import { useApp } from '../store';
 import { Botao, Campo, Modal, dinheiro } from '../ui';
 
@@ -152,6 +152,117 @@ export function NovoContratoModal({ alunoId, inicioSugerido, valorSugerido, onFe
       <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
         <Botao onClick={onFechar}>Cancelar</Botao>
         <Botao tipo="primario" desligado={!valido} onClick={salvar}>Criar contrato</Botao>
+      </div>
+    </Modal>
+  );
+}
+
+type FormaPart = 'dinheiro' | 'pix' | 'debito' | 'credito';
+
+/** Troca o plano de pagamento de um aluno que já existe (particular ↔ Gympass, valor, forma, contrato). */
+export function TrocarPlanoModal({ aluno, aulasSemana, valorAtual, contratoAtual, inicioSugerido, onFechar, onSalvo }: {
+  aluno: Aluno; aulasSemana: number; valorAtual: number | null; contratoAtual: Contrato | null; inicioSugerido: string;
+  onFechar: () => void; onSalvo: () => void;
+}) {
+  const { base, toast } = useApp();
+  const cfg = base?.config;
+  const estimativaGympass = !cfg ? 0 : aulasSemana >= 5 ? cfg.gympass_5x : aulasSemana >= 3 ? cfg.gympass_3x : cfg.gympass_2x;
+  const [origem, setOrigem] = useState<'particular' | 'gympass'>(aluno.origem);
+  const [planoId, setPlanoId] = useState('');
+  const [descricao, setDescricao] = useState('');
+  const [valor, setValor] = useState(valorAtual ? String(valorAtual).replace('.', ',') : '');
+  const [meses, setMeses] = useState(1);
+  const [forma, setForma] = useState<FormaPart>(aluno.forma_pagamento && aluno.forma_pagamento !== 'gympass' ? aluno.forma_pagamento : 'pix');
+  const [manter, setManter] = useState<'manter' | 'encerrar'>('manter');
+  const [aPartir, setAPartir] = useState(inicioSugerido);
+  const [salvando, setSalvando] = useState(false);
+  const planos = base?.planos ?? [];
+
+  function escolherOrigem(o: 'particular' | 'gympass') {
+    setOrigem(o);
+    if (o === 'gympass') { setValor(String(estimativaGympass).replace('.', ',')); setMeses(1); setPlanoId(''); }
+    else setValor(valorAtual && aluno.origem === 'particular' ? String(valorAtual).replace('.', ',') : '');
+  }
+  function escolherPlano(id: string) {
+    setPlanoId(id);
+    const p = planos.find((x) => String(x.id) === id);
+    if (!p) { setMeses(1); return; }
+    setDescricao(p.nome); setValor(String(p.valor).replace('.', ',')); setMeses(p.meses ?? 1);
+  }
+
+  const v = numero(valor);
+  const valido = v > 0 && /^\d{4}-\d{2}$/.test(aPartir);
+  const modo: 'manter' | 'encerrar' | 'novo' = origem === 'gympass' ? 'encerrar' : meses > 1 ? 'novo' : contratoAtual ? manter : 'manter';
+
+  async function salvar() {
+    setSalvando(true);
+    try {
+      const r = await post<{ alteradas: number; mantidas: number; criada: boolean }>(`/alunos/${aluno.id}/plano`, {
+        origem, valor: v, forma_pagamento: origem === 'gympass' ? 'gympass' : forma, descricao: descricao.trim() || undefined,
+        a_partir: aPartir, contrato: modo, meses: modo === 'novo' ? meses : undefined,
+      });
+      toast(`Plano trocado a partir de ${nomeComp(aPartir)}.` + (r.mantidas ? ` ${r.mantidas} mensalidade(s) já paga(s) ou de outra modalidade ficaram como estavam.` : ''));
+      onSalvo();
+    } catch (e) { toast(e instanceof Error ? e.message : 'Erro', true); } finally { setSalvando(false); }
+  }
+
+  return (
+    <Modal titulo="Trocar plano de pagamento" onFechar={onFechar}>
+      <div style={{ fontWeight: 600, fontSize: 17 }}>{aluno.nome}</div>
+      <div className="form">
+        <div>
+          <div className="suave pequeno" style={{ marginBottom: 8, fontWeight: 500 }}>Como o aluno paga</div>
+          <div className="fichas" role="radiogroup" aria-label="Tipo de aluno">
+            {(['particular', 'gympass'] as const).map((o) => (
+              <button key={o} type="button" role="radio" aria-checked={origem === o} className={'ficha' + (origem === o ? ' ativa' : '')} onClick={() => escolherOrigem(o)}>{o === 'particular' ? 'Particular (paga ao estúdio)' : 'Gympass'}</button>
+            ))}
+          </div>
+        </div>
+        {origem === 'particular' ? (
+          <>
+            {planos.length > 0 && (
+              <Campo rotulo="Plano">
+                <select value={planoId} onChange={(e) => escolherPlano(e.target.value)}>
+                  <option value="">Valor combinado</option>
+                  {planos.map((p) => <option key={p.id} value={p.id}>{p.nome} · {rotuloMeses(p.meses)} · R$ {p.valor}</option>)}
+                </select>
+              </Campo>
+            )}
+            <div className="linha-campos">
+              <Campo rotulo="Mensalidade (R$)"><input inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value)} /></Campo>
+              <Campo rotulo="Descrição (opcional)"><input value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Ex.: Pilates 3x" /></Campo>
+            </div>
+            <div>
+              <div className="suave pequeno" style={{ marginBottom: 8, fontWeight: 500 }}>Forma de pagamento habitual</div>
+              <div className="fichas" role="radiogroup" aria-label="Forma de pagamento habitual">
+                {OPCOES.map(([k, r]) => (
+                  <button key={k} type="button" role="radio" aria-checked={forma === k} className={'ficha' + (forma === k ? ' ativa' : '')} onClick={() => setForma(k)}>{r}</button>
+                ))}
+              </div>
+            </div>
+            {meses <= 1 && contratoAtual && (
+              <Campo rotulo="Contrato atual">
+                <select value={manter} onChange={(e) => setManter(e.target.value as 'manter' | 'encerrar')}>
+                  <option value="manter">Manter ({contratoAtual.plano})</option>
+                  <option value="encerrar">Encerrar e passar a mensal</option>
+                </select>
+              </Campo>
+            )}
+          </>
+        ) : (
+          <Campo rotulo="Valor estimado do Gympass por mês (R$)"><input inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value)} /></Campo>
+        )}
+        <Campo rotulo="A partir de"><input type="month" value={aPartir} onChange={(e) => setAPartir(e.target.value)} /></Campo>
+      </div>
+      <div className="cartao pad pequeno" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {origem === 'gympass'
+          ? <div>Passa a contar no Gympass com <span className="num">{dinheiro(v || 0)}</span> estimados por mês ({aulasSemana || 2}x por semana na tabela de Configurações). Ao receber, a forma já vem como Gympass.{contratoAtual && ' O contrato atual é encerrado.'}</div>
+          : <div>Mensalidade de <span className="num">{dinheiro(v || 0)}</span>, paga em {OPCOES.find(([k]) => k === forma)?.[1].toLowerCase()}.{modo === 'novo' && ` Cria um contrato ${rotuloMeses(meses).toLowerCase()} (até ${nomeComp(somarMeses(aPartir, meses - 1))}).`}{modo === 'encerrar' && ' O contrato atual é encerrado.'}</div>}
+        <div className="suave">As mensalidades em aberto de {nomeComp(aPartir)} em diante mudam; as já pagas ficam como estão. Os próximos meses gerados seguem o plano novo.</div>
+      </div>
+      <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+        <Botao onClick={onFechar}>Cancelar</Botao>
+        <Botao tipo="primario" onClick={salvar} desligado={!valido || salvando}>Trocar plano</Botao>
       </div>
     </Modal>
   );

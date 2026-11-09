@@ -22,7 +22,7 @@ export function Receber() {
       <input className="entrada" placeholder="Buscar aluno" value={busca} onChange={(e) => setBusca(e.target.value)} aria-label="Buscar aluno" />
       <div className="lista-cartoes">
         {abertas.map((m) => (
-          <button key={m.id} className="item-lista" onClick={() => setPagar({ mensalidade_id: m.id, nome: m.aluno, descricao: m.modalidade ?? m.descricao ?? '', aberto: m.valor - m.pago })}>
+          <button key={m.id} className="item-lista" onClick={() => setPagar({ mensalidade_id: m.id, nome: m.aluno, descricao: m.modalidade ?? m.descricao ?? '', aberto: m.valor - m.pago, forma: m.forma_pagamento })}>
             <span><b>{m.aluno}</b><div className="pequeno suave">{m.modalidade ?? m.descricao}{m.pago > 0 ? ' · parcial' : ''}</div></span>
             <Num v={m.valor - m.pago} />
           </button>

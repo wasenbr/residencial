@@ -42,6 +42,7 @@ export interface Aluno {
   id: number; nome: string; chave: string | null; telefone: string | null; nascimento: string | null;
   responsavel: string | null; responsavel_tel: string | null; familia: string | null;
   origem: 'particular' | 'gympass'; ativo: number; observacoes: string | null; criado_em: string;
+  forma_pagamento: Forma | null;
 }
 
 export interface Matricula { id: number; aluno_id: number; turma_id: number; inicio: string | null }

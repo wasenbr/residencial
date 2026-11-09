@@ -11,6 +11,7 @@ Sistema que substitui a planilha “Fechamento <mês>”: alunos, turmas, mensal
 - **Fechar o mês** trava os lançamentos, e dá para reabrir. Exporta CSV e JSON.
 - **Cadastro único de alunos:** o mesmo aluno em várias turmas é uma pessoa só, e nomes parecidos (“Susete” × “Suseti”) são sugeridos para unificar.
 - **Contratos** de qualquer duração (trimestral, semestral, anual, 13 meses…), com aviso de renovação.
+- **Trocar plano de aluno existente:** na ficha, “Trocar plano” muda de particular para Gympass (ou o contrário), o valor, a forma de pagamento habitual (que já vem marcada ao receber) e o contrato, a partir do mês escolhido.
 - **Pagamento adiantado:** na ficha do aluno, “Pagar adiantado” lança vários meses de uma vez. Cada mês fatura a sua parte (total ÷ meses), o caixa recebe tudo no mês do pagamento e gerar o mês não duplica quem já pagou.
 - **Celular:** início, receber pagamento, novo aluno e lançar despesa.
 - **Importa as planilhas antigas**, mês a mês, e mostra uma conferência com a aba Fechamento de cada uma.

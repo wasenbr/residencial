@@ -6,7 +6,7 @@ import type { Aluno, Contrato, Turma } from '../shared/tipos';
 import { useApp } from '../store';
 import { Botao, Campo, Carregando, FORMA_ROTULO, Modal, Num, Pilula, Topo, useDados } from '../ui';
 import { PagarModal, type Devendo } from '../components/Pagar';
-import { AdiantadoModal, NovoContratoModal } from '../components/Adiantado';
+import { AdiantadoModal, NovoContratoModal, TrocarPlanoModal } from '../components/Adiantado';
 
 interface Ficha {
   aluno: Aluno;
@@ -27,6 +27,7 @@ export function AlunoFicha() {
   const [perguntaInativar, setPerguntaInativar] = useState(false);
   const [adiantado, setAdiantado] = useState(false);
   const [novoContrato, setNovoContrato] = useState(false);
+  const [trocarPlano, setTrocarPlano] = useState(false);
   if (!dados) return <Carregando erro={erro} />;
   const { aluno, turmas, contratos, mensalidades, familia } = dados;
   const contrato = contratos.find((c) => !c.encerrado_em) ?? null;
@@ -58,7 +59,11 @@ export function AlunoFicha() {
 
       <div className="grade2">
         <section className="cartao pad">
-          <h2 style={{ marginBottom: 8 }}>Contrato</h2>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8 }}>
+            <h2>Plano e contrato</h2>
+            <Botao pequeno onClick={() => setTrocarPlano(true)}>Trocar plano</Botao>
+          </div>
+          <Linha r="Paga" v={aluno.origem === 'gympass' ? 'Pelo Gympass' : aluno.forma_pagamento ? `Particular · ${FORMA_ROTULO[aluno.forma_pagamento] ?? aluno.forma_pagamento}` : 'Particular'} />
           {contrato ? (
             <>
               <Linha r="Plano" v={`${contrato.plano} · ${rotuloMeses(contrato.meses)}`} />
@@ -121,7 +126,7 @@ export function AlunoFicha() {
                 <td>{nomeComp(m.competencia)}</td><td>{m.modalidade ?? m.descricao ?? '—'}</td><td className="d"><Num v={m.valor} /></td>
                 <td className="esconde-cel">{m.formas ? m.formas.split(',').map((f) => FORMA_ROTULO[f] ?? f).join(', ') : '—'}</td>
                 <td>{m.adiantado ? <><Pilula tipo="info">Adiantado</Pilula> </> : null}{falta <= 0.009 ? <Pilula tipo="ok">Pago</Pilula> : m.pago > 0 ? <Pilula tipo="atraso">Falta <Num v={falta} /></Pilula> : <Pilula tipo="atraso">Em aberto</Pilula>}</td>
-                <td className="d">{falta > 0.009 && <Botao pequeno onClick={() => setPagar({ mensalidade_id: m.id, nome: aluno.nome, descricao: `${m.modalidade ?? ''} ${nomeComp(m.competencia)}`.trim(), aberto: falta })}>Registrar</Botao>}</td>
+                <td className="d">{falta > 0.009 && <Botao pequeno onClick={() => setPagar({ mensalidade_id: m.id, nome: aluno.nome, descricao: `${m.modalidade ?? ''} ${nomeComp(m.competencia)}`.trim(), aberto: falta, forma: aluno.forma_pagamento })}>Registrar</Botao>}</td>
               </tr>
             );
           })}</tbody>
@@ -132,6 +137,10 @@ export function AlunoFicha() {
       {adiantado && (
         <AdiantadoModal alunoId={aluno.id} nome={aluno.nome} inicioSugerido={proximoAPagar} contratoAtual={contrato}
           onFechar={() => setAdiantado(false)} onSalvo={() => { setAdiantado(false); atualizar(); void recarregar(); }} />
+      )}
+      {trocarPlano && (
+        <TrocarPlanoModal aluno={aluno} aulasSemana={aulas} valorAtual={valorRecente} contratoAtual={contrato} inicioSugerido={comp}
+          onFechar={() => setTrocarPlano(false)} onSalvo={() => { setTrocarPlano(false); atualizar(); void recarregar(); }} />
       )}
       {novoContrato && (
         <NovoContratoModal alunoId={aluno.id} inicioSugerido={comp} valorSugerido={valorRecente}
@@ -191,7 +200,6 @@ function EditarAluno({ aluno, onFechar, onSalvo }: { aluno: Aluno; onFechar: () 
         </div>
         <div className="linha-campos">
           <Campo rotulo="Grupo familiar"><input value={f.familia ?? ''} onChange={(e) => set('familia', e.target.value)} /></Campo>
-          <Campo rotulo="Origem"><select value={f.origem} onChange={(e) => set('origem', e.target.value)}><option value="particular">Particular</option><option value="gympass">Gympass</option></select></Campo>
         </div>
         <Campo rotulo="Observações"><textarea value={f.observacoes ?? ''} onChange={(e) => set('observacoes', e.target.value)} /></Campo>
       </div>

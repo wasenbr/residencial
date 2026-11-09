@@ -9,7 +9,7 @@ import { SemMes } from './Dashboard';
 
 export interface MensalidadeLinha {
   id: number; aluno_id: number; aluno: string; origem: string; modalidade: string | null; descricao: string | null;
-  valor: number; pago: number; formas: string | null; vencimento: string | null; adiantado?: number;
+  valor: number; pago: number; formas: string | null; vencimento: string | null; adiantado?: number; forma_pagamento?: string | null;
 }
 
 type Filtro = 'todas' | 'atraso' | 'parciais' | 'pagas' | 'gympass';
@@ -74,7 +74,7 @@ export function Mensalidades() {
                 <td className="d"><Num v={m.valor} /></td><td className="d"><Num v={m.pago} /></td>
                 <td className="esconde-cel">{m.formas ? m.formas.split(',').map((f) => FORMA_ROTULO[f] ?? f).join(', ') : '—'}</td>
                 <td>{s === 'pago' ? <Pilula tipo="ok">Pago</Pilula> : s === 'parcial' ? <Pilula tipo="atraso">Parcial</Pilula> : s === 'atraso' ? <Pilula tipo="atraso">Venceu {diaMes(m.vencimento)}</Pilula> : <Pilula tipo="aberto">A vencer</Pilula>}</td>
-                <td className="d">{s !== 'pago' && <Botao pequeno onClick={() => setPagar({ mensalidade_id: m.id, nome: m.aluno, descricao: m.modalidade ?? m.descricao ?? '', aberto: m.valor - m.pago })}>Registrar pagamento</Botao>}</td>
+                <td className="d">{s !== 'pago' && <Botao pequeno onClick={() => setPagar({ mensalidade_id: m.id, nome: m.aluno, descricao: m.modalidade ?? m.descricao ?? '', aberto: m.valor - m.pago, forma: m.forma_pagamento })}>Registrar pagamento</Botao>}</td>
               </tr>
             );
           })}</tbody>

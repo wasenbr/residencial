@@ -299,6 +299,90 @@ export function criarApp() {
     return c.json({ ok: true });
   });
 
+  // Troca o plano de pagamento de um aluno que já existe: particular ↔ Gympass,
+  // valor, forma habitual (dinheiro, Pix, cartão...) e contrato. Vale a partir de
+  // um mês já gerado; as mensalidades em aberto desse mês em diante passam a ter
+  // o valor novo e os meses seguintes copiam dele. As já pagas não mudam.
+  app.post('/alunos/:id/plano', async (c) => {
+    const db = c.env.DB;
+    const id = Number(c.req.param('id'));
+    const b = await c.req.json<{
+      origem: 'particular' | 'gympass'; valor: number; forma_pagamento?: Pagamento['forma'] | null; descricao?: string;
+      a_partir: string; contrato?: 'manter' | 'encerrar' | 'novo'; meses?: number;
+    }>();
+    const aluno = await db.prepare('SELECT * FROM alunos WHERE id = ?').bind(id).first<Aluno>();
+    if (!aluno) throw new Erro(404, 'Aluno não encontrado.');
+    if (b.origem !== 'particular' && b.origem !== 'gympass') throw new Erro(400, 'Escolha particular ou Gympass.');
+    if (!validaComp(b.a_partir)) throw new Erro(400, 'Informe a partir de qual mês.');
+    if (!(b.valor > 0)) throw new Erro(400, b.origem === 'gympass' ? 'Informe o valor estimado do Gympass.' : 'Informe o valor da mensalidade.');
+    const forma = b.origem === 'gympass' ? 'gympass' : b.forma_pagamento ?? null;
+    if (forma != null && !FORMAS.includes(forma)) throw new Erro(400, 'Forma de pagamento inválida.');
+    if (b.origem === 'particular' && forma === 'gympass') throw new Erro(400, 'Para pagar pelo Gympass, escolha o tipo Gympass.');
+    // Gympass não tem contrato com o estúdio.
+    const modo = b.origem === 'gympass' ? 'encerrar' : b.contrato ?? 'manter';
+    const meses = b.meses ?? 1;
+    if (modo === 'novo' && (!Number.isInteger(meses) || meses < 2 || meses > 60)) throw new Erro(400, 'Duração do contrato inválida (2 a 60 meses).');
+    await exigeAberto(db, b.a_partir);
+
+    const mens = (await db.prepare(`
+      SELECT m.id, m.competencia, m.modalidade_id, m.contrato_id, COALESCE((SELECT SUM(valor) FROM pagamentos WHERE mensalidade_id = m.id), 0) AS pago
+      FROM mensalidades m WHERE m.aluno_id = ? AND m.cancelada = 0 AND m.competencia >= ? ORDER BY m.competencia, m.id`).bind(id, b.a_partir).all()).results as
+      { id: number; competencia: string; modalidade_id: number | null; contrato_id: number | null; pago: number }[];
+    const temNoMes = mens.some((m) => m.competencia === b.a_partir);
+    if (!temNoMes) {
+      const gerado = await db.prepare('SELECT 1 AS x FROM mensalidades WHERE competencia = ? AND adiantado = 0 LIMIT 1').bind(b.a_partir).first();
+      if (!gerado) throw new Erro(400, `${b.a_partir} ainda não foi gerado. Gere o mês antes ou troque o plano a partir de um mês já gerado.`);
+    }
+    const porMes = new Map<string, number>();
+    for (const m of mens) porMes.set(m.competencia, (porMes.get(m.competencia) ?? 0) + 1);
+
+    const descricao = b.descricao?.trim() || (b.origem === 'gympass' ? 'Gympass' : null);
+    const ativo = await db.prepare('SELECT * FROM contratos WHERE aluno_id = ? AND encerrado_em IS NULL ORDER BY inicio DESC LIMIT 1').bind(id).first<Contrato>();
+    const stmts: D1PreparedStatement[] = [
+      db.prepare('UPDATE alunos SET origem = ?, forma_pagamento = ? WHERE id = ?').bind(b.origem, forma, id),
+    ];
+    if (ativo && modo !== 'manter') stmts.push(db.prepare('UPDATE contratos SET encerrado_em = ? WHERE id = ?').bind(hoje(), ativo.id));
+    if (modo === 'novo') {
+      stmts.push(db.prepare('INSERT INTO contratos (aluno_id, plano, periodo, valor_mensal, inicio, meses) VALUES (?,?,?,?,?,?)')
+        .bind(id, descricao ?? periodoDeMeses(meses), periodoDeMeses(meses), b.valor, b.a_partir, meses));
+    }
+    // contrato_id que as mensalidades em aberto passam a ter
+    const fimNovo = somarMeses(b.a_partir, meses);
+    const contratoDe = (comp: string): [string, unknown[]] => {
+      if (modo === 'novo') return comp < fimNovo ? ['(SELECT MAX(id) FROM contratos WHERE aluno_id = ?)', [id]] : ['NULL', []];
+      if (modo === 'encerrar') return ['NULL', []];
+      return ['contrato_id', []];
+    };
+    let alteradas = 0, mantidas = 0;
+    for (const m of mens) {
+      if (m.pago > 0) { mantidas++; continue; }
+      const [sqlC, argsC] = contratoDe(m.competencia);
+      if (porMes.get(m.competencia) === 1) {
+        stmts.push(db.prepare(`UPDATE mensalidades SET valor = ?, descricao = COALESCE(?, descricao), contrato_id = ${sqlC} WHERE id = ?`)
+          .bind(b.valor, descricao, ...argsC, m.id));
+        alteradas++;
+      } else {
+        // Várias modalidades no mesmo mês: o valor de cada uma fica como está.
+        stmts.push(db.prepare(`UPDATE mensalidades SET contrato_id = ${sqlC} WHERE id = ?`).bind(...argsC, m.id));
+        mantidas++;
+      }
+    }
+    let criada = false;
+    if (!temNoMes) {
+      // Aluno sem mensalidade no mês (ex.: Gympass cadastrado sem valor): cria a do mês.
+      const ultima = await db.prepare('SELECT modalidade_id FROM mensalidades WHERE aluno_id = ? ORDER BY competencia DESC, id DESC LIMIT 1').bind(id).first<{ modalidade_id: number | null }>();
+      const mods = (await db.prepare('SELECT DISTINCT t.modalidade_id FROM matriculas m JOIN turmas t ON t.id = m.turma_id WHERE m.aluno_id = ?').bind(id).all()).results as { modalidade_id: number }[];
+      const modalidadeId = ultima?.modalidade_id ?? (mods.length === 1 ? mods[0].modalidade_id : null);
+      const cfg = await carregarConfig(db);
+      const [sqlC, argsC] = contratoDe(b.a_partir);
+      stmts.push(db.prepare(`INSERT INTO mensalidades (aluno_id, contrato_id, competencia, modalidade_id, descricao, valor, vencimento) VALUES (?, ${sqlC === 'contrato_id' ? (ativo ? String(ativo.id) : 'NULL') : sqlC}, ?,?,?,?,?)`)
+        .bind(id, ...argsC, b.a_partir, modalidadeId, descricao, b.valor, `${b.a_partir}-${String(cfg.dia_vencimento).padStart(2, '0')}`));
+      criada = true;
+    }
+    await db.batch(stmts);
+    return c.json({ alteradas, mantidas, criada });
+  });
+
   // Contrato novo para um aluno que já está cadastrado. Vale a partir de um mês
   // que já tem a mensalidade dele; os meses seguintes copiam dela.
   app.post('/alunos/:id/contratos', async (c) => {
@@ -471,7 +555,7 @@ export function criarApp() {
   app.get('/mensalidades', async (c) => {
     const comp = compDe(c);
     const r = await c.env.DB.prepare(`
-      SELECT m.*, a.nome AS aluno, a.origem, md.nome AS modalidade,
+      SELECT m.*, a.nome AS aluno, a.origem, a.forma_pagamento, md.nome AS modalidade,
              COALESCE((SELECT SUM(valor) FROM pagamentos WHERE mensalidade_id = m.id), 0) AS pago,
              (SELECT GROUP_CONCAT(DISTINCT forma) FROM pagamentos WHERE mensalidade_id = m.id) AS formas
       FROM mensalidades m JOIN alunos a ON a.id = m.aluno_id LEFT JOIN modalidades md ON md.id = m.modalidade_id
