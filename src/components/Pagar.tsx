@@ -3,7 +3,7 @@ import { post } from '../api';
 import { useApp } from '../store';
 import { Botao, Campo, Modal, dinheiro } from '../ui';
 
-export interface Devendo { mensalidade_id: number; nome: string; descricao: string; aberto: number }
+export interface Devendo { mensalidade_id: number; nome: string; descricao: string; aberto: number; forma?: string | null }
 
 type Forma = 'dinheiro' | 'pix' | 'debito' | 'credito' | 'gympass';
 const OPCOES: [Forma, string][] = [['dinheiro', 'Dinheiro'], ['pix', 'Pix'], ['debito', 'Débito'], ['credito', 'Cartão de crédito'], ['gympass', 'Gympass']];
@@ -11,7 +11,8 @@ const OPCOES: [Forma, string][] = [['dinheiro', 'Dinheiro'], ['pix', 'Pix'], ['d
 export function PagarModal({ item, onFechar, onPago }: { item: Devendo; onFechar: () => void; onPago: () => void }) {
   const { toast, recarregar, base } = useApp();
   const [valor, setValor] = useState(String(item.aberto).replace('.', ','));
-  const [forma, setForma] = useState<Forma>('pix');
+  // Já vem marcada a forma habitual do aluno (definida em "Trocar plano").
+  const [forma, setForma] = useState<Forma>(OPCOES.some(([k]) => k === item.forma) ? item.forma as Forma : 'pix');
   const [data, setData] = useState(base?.hoje ?? new Date().toISOString().slice(0, 10));
   const [salvando, setSalvando] = useState(false);
 

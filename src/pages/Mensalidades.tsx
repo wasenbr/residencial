@@ -12,6 +12,7 @@ export interface MensalidadeLinha {
   id: number; aluno_id: number; aluno: string; origem: string; modalidade: string | null; descricao: string | null;
   valor: number; pago: number; formas: string | null; vencimento: string | null; contrato_id: number | null;
   telefone: string | null; responsavel: string | null; responsavel_tel: string | null; recorrente: number;
+  adiantado?: number; forma_pagamento?: string | null;
 }
 
 type Filtro = 'todas' | 'atraso' | 'parciais' | 'pagas' | 'gympass' | 'recorrentes';
@@ -66,7 +67,7 @@ export function Mensalidades() {
         <SeletorMes />
         {recorrentesAbertas.length > 0 && !fechado && <Botao onClick={() => setBaixar(true)}>Baixar recorrentes · {recorrentesAbertas.length}</Botao>}
       </Topo>
-      {dados.length === 0 && <SemMes comp={comp} onGerado={recarregar} />}
+      {!dados.some((m) => !m.adiantado) && <SemMes comp={comp} onGerado={recarregar} />}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
         <input className="entrada" style={{ maxWidth: 260 }} placeholder="Buscar aluno" value={busca} onChange={(e) => setBusca(e.target.value)} aria-label="Buscar aluno" />
         <div className="fichas">{fichas.map(([k, r]) => <button key={k} className={'ficha' + (filtro === k ? ' ativa' : '')} onClick={() => setFiltro(k)}>{r} · {cont[k]}</button>)}</div>
@@ -91,7 +92,7 @@ export function Mensalidades() {
                 <td className="d"><span className="acoes-linha">
                   {!fechado && <button className="link" onClick={() => setAlterar({ id: m.id, nome: m.aluno, competencia: comp, descricao: m.modalidade ?? m.descricao ?? '', valor: m.valor, contrato: m.contrato_id != null })}>Alterar</button>}
                   {(s === 'atraso' || s === 'parcial') && !m.recorrente && <BotaoCobrar aluno={{ ...m, nome: m.aluno }} competencia={comp} valor={falta} vencimento={m.vencimento} />}
-                  {s !== 'pago' && <Botao pequeno onClick={() => setPagar({ mensalidade_id: m.id, nome: m.aluno, descricao: m.modalidade ?? m.descricao ?? '', aberto: falta })}>Registrar pagamento</Botao>}
+                  {s !== 'pago' && <Botao pequeno onClick={() => setPagar({ mensalidade_id: m.id, nome: m.aluno, descricao: m.modalidade ?? m.descricao ?? '', aberto: falta, forma: m.forma_pagamento })}>Registrar pagamento</Botao>}
                 </span></td>
               </tr>
             );

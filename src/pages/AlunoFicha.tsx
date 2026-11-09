@@ -1,18 +1,19 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { del, get, post, put } from '../api';
-import { nomeComp, diffMeses, somarMeses } from '../shared/comp';
+import { nomeComp, diffMeses, rotuloMeses, somarMeses } from '../shared/comp';
 import type { Aluno, Contrato, Turma } from '../shared/tipos';
 import { useApp } from '../store';
 import { Botao, Campo, Carregando, FORMA_ROTULO, Modal, Num, Pilula, Topo, useDados } from '../ui';
 import { PagarModal, type Devendo } from '../components/Pagar';
+import { AdiantadoModal, TrocarPlanoModal } from '../components/Adiantado';
 import { AlterarValorModal, type MensalidadeEditavel } from '../components/Cobranca';
 
 interface Ficha {
   aluno: Aluno;
   turmas: (Turma & { modalidade: string })[];
   contratos: Contrato[];
-  mensalidades: { id: number; contrato_id: number | null; competencia: string; modalidade: string | null; descricao: string | null; valor: number; pago: number; formas: string | null; vencimento: string | null; cancelada: number }[];
+  mensalidades: { id: number; contrato_id: number | null; competencia: string; modalidade: string | null; descricao: string | null; valor: number; pago: number; formas: string | null; vencimento: string | null; cancelada: number; adiantado: number }[];
   familia: { id: number; nome: string }[];
 }
 
@@ -25,6 +26,7 @@ export function AlunoFicha() {
   const [pagar, setPagar] = useState<Devendo | null>(null);
   const [matricular, setMatricular] = useState(false);
   const [perguntaInativar, setPerguntaInativar] = useState(false);
+  const [adiantado, setAdiantado] = useState(false);
   const [alterar, setAlterar] = useState<MensalidadeEditavel | null>(null);
   const [lancar, setLancar] = useState(false);
   const [trocarPlano, setTrocarPlano] = useState(false);
@@ -37,6 +39,13 @@ export function AlunoFicha() {
   const devidoMes = doMes.reduce((s, m) => s + m.valor, 0);
   const pagoMes = doMes.reduce((s, m) => s + m.pago, 0);
   const aulas = turmas.reduce((s, t) => s + t.aulas_semana, 0);
+  const ativas = mensalidades.filter((m) => !m.cancelada);
+  const quitada = (c: string) => { const ms = ativas.filter((m) => m.competencia === c); return ms.length > 0 && ms.every((m) => m.valor - m.pago <= 0.009); };
+  // Último mês futuro já pago e primeiro mês ainda não pago (sugestão para o próximo adiantado).
+  const pagoAte = ativas.filter((m) => m.competencia > comp && m.valor - m.pago <= 0.009).map((m) => m.competencia).sort().pop() ?? null;
+  let proximoAPagar = comp;
+  while (quitada(proximoAPagar)) proximoAPagar = somarMeses(proximoAPagar, 1);
+  const valorRecente = ativas.find((m) => m.competencia <= comp)?.valor ?? null;
   const editavel = (m: Ficha['mensalidades'][number]): MensalidadeEditavel => ({
     id: m.id, nome: aluno.nome, competencia: m.competencia, descricao: m.modalidade ?? m.descricao ?? '', valor: m.valor,
     contrato: m.contrato_id != null,
@@ -60,6 +69,7 @@ export function AlunoFicha() {
           <h2 style={{ marginBottom: 8 }}>Mensalidade e contrato</h2>
           <Linha r={`Mensalidade de ${nomeComp(comp, true).toLowerCase()}`} v={doMes.length ? <Num v={devidoMes} /> : '—'} />
           <Linha r="Cobrança" v={aluno.recorrente ? 'Cartão recorrente (cai sozinho)' : 'Manual'} />
+          <Linha r="Paga" v={aluno.origem === 'gympass' ? 'Pelo Gympass' : aluno.forma_pagamento ? `Particular · ${FORMA_ROTULO[aluno.forma_pagamento] ?? aluno.forma_pagamento}` : 'Particular'} />
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '8px 0 12px' }}>
             <Botao pequeno tipo="primario" onClick={() => setTrocarPlano(true)}>Trocar plano</Botao>
             {doMes.length === 1 && <Botao pequeno onClick={() => setAlterar(editavel(doMes[0]))}>Alterar valor</Botao>}
@@ -68,7 +78,7 @@ export function AlunoFicha() {
           </div>
           {contrato ? (
             <>
-              <Linha r="Plano" v={contrato.plano.toLowerCase() === contrato.periodo ? contrato.plano : `${contrato.plano} · ${contrato.periodo}`} />
+              <Linha r="Plano" v={`${contrato.plano} · ${rotuloMeses(contrato.meses)}`} />
               <Linha r="Valor do contrato" v={<Num v={contrato.valor_mensal} />} />
               <Linha r="Início" v={nomeComp(contrato.inicio)} />
               {mesDoContrato && contrato.meses && <Linha r="Mês" v={`${Math.min(mesDoContrato, contrato.meses)} de ${contrato.meses}${mesDoContrato >= contrato.meses ? ' · termina neste mês' : ''}`} />}
@@ -79,6 +89,7 @@ export function AlunoFicha() {
               <div className="pequeno suave" style={{ marginTop: 8 }}>Sem multa por cancelamento. Encerrar cancela as mensalidades futuras.</div>
             </>
           ) : <div className="suave">Plano mensal, sem prazo de fidelidade.</div>}
+          {pagoAte && <div style={{ marginTop: 12 }}><Pilula tipo="ok">Pago até {nomeComp(pagoAte)}</Pilula></div>}
         </section>
 
         <section className="cartao pad">
@@ -108,7 +119,10 @@ export function AlunoFicha() {
       <section className="cartao">
         <div style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <h2>Pagamentos</h2>
-          <span className="suave pequeno">{nomeComp(comp)}: <Num v={pagoMes} /> de <Num v={devidoMes} /></span>
+          <span style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span className="suave pequeno">{nomeComp(comp)}: <Num v={pagoMes} /> de <Num v={devidoMes} /></span>
+            {aluno.origem === 'particular' && <Botao pequeno onClick={() => setAdiantado(true)}>Pagar adiantado</Botao>}
+          </span>
         </div>
         <div className="tabela-wrap"><table className="tbl">
           <thead><tr><th>Competência</th><th>Descrição</th><th className="d">Valor</th><th className="esconde-cel">Forma</th><th>Status</th><th /></tr></thead>
@@ -118,10 +132,10 @@ export function AlunoFicha() {
               <tr key={m.id}>
                 <td>{nomeComp(m.competencia)}</td><td>{m.modalidade ?? m.descricao ?? '—'}</td><td className="d"><Num v={m.valor} /></td>
                 <td className="esconde-cel">{m.formas ? m.formas.split(',').map((f) => FORMA_ROTULO[f] ?? f).join(', ') : '—'}</td>
-                <td>{falta <= 0.009 ? <Pilula tipo="ok">Pago</Pilula> : m.pago > 0 ? <Pilula tipo="atraso">Falta <Num v={falta} /></Pilula> : <Pilula tipo="atraso">Em aberto</Pilula>}</td>
+                <td>{m.adiantado ? <><Pilula tipo="info">Adiantado</Pilula> </> : null}{falta <= 0.009 ? <Pilula tipo="ok">Pago</Pilula> : m.pago > 0 ? <Pilula tipo="atraso">Falta <Num v={falta} /></Pilula> : <Pilula tipo="atraso">Em aberto</Pilula>}</td>
                 <td className="d"><span className="acoes-linha">
                   {!fechados.includes(m.competencia) && <button className="link" onClick={() => setAlterar(editavel(m))}>Alterar</button>}
-                  {falta > 0.009 && <Botao pequeno onClick={() => setPagar({ mensalidade_id: m.id, nome: aluno.nome, descricao: `${m.modalidade ?? ''} ${nomeComp(m.competencia)}`.trim(), aberto: falta })}>Registrar</Botao>}
+                  {falta > 0.009 && <Botao pequeno onClick={() => setPagar({ mensalidade_id: m.id, nome: aluno.nome, descricao: `${m.modalidade ?? ''} ${nomeComp(m.competencia)}`.trim(), aberto: falta, forma: aluno.forma_pagamento })}>Registrar</Botao>}
                 </span></td>
               </tr>
             );
@@ -130,8 +144,15 @@ export function AlunoFicha() {
         {mensalidades.length === 0 && <div className="vazio">Nenhuma mensalidade ainda.</div>}</div>
       </section>
 
+      {adiantado && (
+        <AdiantadoModal alunoId={aluno.id} nome={aluno.nome} inicioSugerido={proximoAPagar} contratoAtual={contrato}
+          onFechar={() => setAdiantado(false)} onSalvo={() => { setAdiantado(false); atualizar(); void recarregar(); }} />
+      )}
+      {trocarPlano && (
+        <TrocarPlanoModal aluno={aluno} aulasSemana={aulas} valorAtual={valorRecente} contratoAtual={contrato} inicioSugerido={comp}
+          onFechar={() => setTrocarPlano(false)} onSalvo={() => { setTrocarPlano(false); atualizar(); void recarregar(); }} />
+      )}
       {alterar && <AlterarValorModal item={alterar} onFechar={() => setAlterar(null)} onSalvo={() => { setAlterar(null); atualizar(); }} />}
-      {trocarPlano && <TrocarPlano aluno={aluno} atual={contrato} valorAtual={devidoMes || contrato?.valor_mensal || 0} onFechar={() => setTrocarPlano(false)} onSalvo={() => { setTrocarPlano(false); atualizar(); }} />}
       {lancar && <LancarMensalidade alunoId={aluno.id} nome={aluno.nome} sugestao={contrato?.valor_mensal ?? mensalidades.find((m) => !m.cancelada)?.valor ?? 0} onFechar={() => setLancar(false)} onSalvo={() => { setLancar(false); atualizar(); void recarregar(); }} />}
       {pagar && <PagarModal item={pagar} onFechar={() => setPagar(null)} onPago={() => { setPagar(null); atualizar(); }} />}
       {editando && <EditarAluno aluno={aluno} onFechar={() => setEditando(false)} onSalvo={() => { setEditando(false); atualizar(); void recarregar(); }} />}
@@ -187,7 +208,6 @@ function EditarAluno({ aluno, onFechar, onSalvo }: { aluno: Aluno; onFechar: () 
         </div>
         <div className="linha-campos">
           <Campo rotulo="Grupo familiar"><input value={f.familia ?? ''} onChange={(e) => set('familia', e.target.value)} /></Campo>
-          <Campo rotulo="Origem"><select value={f.origem} onChange={(e) => set('origem', e.target.value)}><option value="particular">Particular</option><option value="gympass">Gympass</option></select></Campo>
         </div>
         {f.origem === 'particular' && <Recorrente valor={!!f.recorrente} onChange={(v) => set('recorrente', v ? 1 : 0)} />}
         <Campo rotulo="Observações"><textarea value={f.observacoes ?? ''} onChange={(e) => set('observacoes', e.target.value)} /></Campo>
@@ -219,90 +239,6 @@ function LancarMensalidade({ alunoId, nome, sugestao, onFechar, onSalvo }: { alu
       <Campo rotulo="Valor (R$)"><input inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value)} autoFocus /></Campo>
       <div className="suave pequeno">Daqui em diante, os meses novos copiam este valor.</div>
       <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}><Botao onClick={onFechar}>Cancelar</Botao><Botao tipo="primario" onClick={salvar} desligado={!(v > 0)}>Lançar</Botao></div>
-    </Modal>
-  );
-}
-
-type Periodo = 'mensal' | 'semestral' | 'anual';
-const MESES_PERIODO: Record<Periodo, number | null> = { mensal: null, semestral: 6, anual: 12 };
-
-function TrocarPlano({ aluno, atual, valorAtual, onFechar, onSalvo }: { aluno: Aluno; atual: Contrato | null; valorAtual: number; onFechar: () => void; onSalvo: () => void }) {
-  const { base, comp, toast, recarregar } = useApp();
-  const meses = [...new Set([...(base?.competencias ?? []), comp])].filter((c) => !base?.fechados.includes(c)).sort();
-  const [periodo, setPeriodo] = useState<Periodo>(atual?.periodo === 'semestral' ? 'anual' : atual?.periodo === 'anual' ? 'mensal' : 'anual');
-  const [planoId, setPlanoId] = useState<number | 'manual'>('manual');
-  const [valor, setValor] = useState(valorAtual ? String(valorAtual).replace('.', ',') : '');
-  const [inicio, setInicio] = useState(meses.includes(comp) ? comp : meses[meses.length - 1] ?? comp);
-  const [particular, setParticular] = useState(true);
-  const [salvando, setSalvando] = useState(false);
-  const planos = base?.planos.filter((p) => p.periodo === periodo) ?? [];
-  const v = Number(valor.replace(',', '.'));
-  const n = MESES_PERIODO[periodo];
-
-  function escolherPeriodo(p: Periodo) { setPeriodo(p); setPlanoId('manual'); }
-  function escolherPlano(id: number | 'manual') {
-    setPlanoId(id);
-    const p = base?.planos.find((x) => x.id === id);
-    if (p) setValor(String(p.valor).replace('.', ','));
-  }
-  async function salvar() {
-    setSalvando(true);
-    try {
-      const plano = base?.planos.find((p) => p.id === planoId);
-      await post(`/alunos/${aluno.id}/plano`, { periodo, valor: v, inicio, plano: plano?.nome, particular: aluno.origem === 'gympass' && particular });
-      toast('Plano trocado.');
-      await recarregar();
-      onSalvo();
-    } catch (e) { toast(e instanceof Error ? e.message : 'Erro', true); } finally { setSalvando(false); }
-  }
-
-  return (
-    <Modal titulo="Trocar plano" onFechar={onFechar}>
-      <div className="suave pequeno">{aluno.nome} · hoje: {atual ? `${atual.plano} (${atual.periodo})` : 'mensal, sem contrato'}</div>
-      <div>
-        <div className="campo" style={{ marginBottom: 8 }}>Novo plano</div>
-        <div className="fichas" role="radiogroup" aria-label="Período">
-          {(['mensal', 'semestral', 'anual'] as const).map((p) => (
-            <button key={p} type="button" role="radio" aria-checked={periodo === p} className={'ficha' + (periodo === p ? ' ativa' : '')} onClick={() => escolherPeriodo(p)}>
-              {p === 'mensal' ? 'Mensal' : p === 'semestral' ? 'Semestral (6 meses)' : 'Anual (12 meses)'}
-            </button>
-          ))}
-        </div>
-      </div>
-      {planos.length > 0 && (
-        <Campo rotulo="Plano cadastrado">
-          <select value={planoId} onChange={(e) => escolherPlano(e.target.value === 'manual' ? 'manual' : Number(e.target.value))}>
-            <option value="manual">Valor combinado</option>
-            {planos.map((p) => <option key={p.id} value={p.id}>{p.nome} · R$ {p.valor}</option>)}
-          </select>
-        </Campo>
-      )}
-      <div className="linha-campos">
-        <Campo rotulo="Valor por mês (R$)"><input inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value)} /></Campo>
-        <Campo rotulo="A partir de">
-          <select value={inicio} onChange={(e) => setInicio(e.target.value)}>
-            {meses.map((c) => <option key={c} value={c}>{nomeComp(c)}</option>)}
-          </select>
-        </Campo>
-      </div>
-      {aluno.origem === 'gympass' && (
-        <label style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 44 }}>
-          <input type="checkbox" checked={particular} onChange={(e) => setParticular(e.target.checked)} style={{ width: 20, height: 20 }} />
-          Deixa de ser Gympass e passa a particular
-        </label>
-      )}
-      <div className="cartao pad pequeno" style={{ background: 'var(--marca-clara)', border: 0 }}>
-        {v > 0 ? (n
-          ? <>Mensalidade de <b><Num v={v} /></b> por mês, de {nomeComp(inicio)} a {nomeComp(somarMeses(inicio, n - 1))} ({n} meses, total <Num v={v * n} />). No fim, a ficha avisa para renovar.</>
-          : <>Mensalidade de <b><Num v={v} /></b> por mês a partir de {nomeComp(inicio)}, sem prazo.</>)
-          : 'Informe o valor por mês.'}
-        {atual && <> O contrato atual ({atual.plano}) é encerrado.</>}
-        <div className="suave" style={{ marginTop: 6 }}>Pagamentos já feitos continuam valendo. A forma de pagamento (dinheiro, Pix, cartão) é escolhida a cada pagamento.</div>
-      </div>
-      <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-        <Botao onClick={onFechar}>Cancelar</Botao>
-        <Botao tipo="primario" onClick={salvar} desligado={!(v > 0) || !inicio || salvando}>Trocar plano</Botao>
-      </div>
     </Modal>
   );
 }

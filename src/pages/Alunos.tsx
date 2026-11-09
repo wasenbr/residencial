@@ -7,7 +7,7 @@ import { useApp } from '../store';
 import { Botao, Carregando, Num, Pilula, SeletorMes, Topo, useDados } from '../ui';
 import { nomeComp, diffMeses } from '../shared/comp';
 
-type Linha = Aluno & { turmas: { id: number; nome: string }[]; contrato: Contrato | null; devido: number; pago: number };
+type Linha = Aluno & { turmas: { id: number; nome: string }[]; contrato: Contrato | null; devido: number; pago: number; pago_ate: string | null };
 type Filtro = 'ativos' | 'particulares' | 'gympass' | 'criancas' | 'inativos';
 
 export function Alunos() {
@@ -93,7 +93,7 @@ export function Alunos() {
                   <td>{a.turmas.length ? a.turmas.map((t) => t.nome).join(', ') : <span className="suave">—</span>}</td>
                   <td className="esconde-cel">{a.contrato ? `${a.contrato.plano}${mesContrato ? ` · mês ${mesContrato} de ${a.contrato.meses}` : ''}` : 'Mensal'}</td>
                   <td className="esconde-cel">{a.origem === 'gympass' ? 'Gympass' : 'Particular'}</td>
-                  <td>{a.devido === 0 ? <span className="suave">—</span> : aberto > 0.009 ? (a.pago > 0 ? <Pilula tipo="atraso">Saldo <Num v={aberto} /></Pilula> : <Pilula tipo="atraso">Em aberto</Pilula>) : <Pilula tipo="ok">Pago</Pilula>}</td>
+                  <td>{a.pago_ate && <div className="pequeno" style={{ marginBottom: 2 }}><Pilula tipo="info">Pago até {nomeComp(a.pago_ate, true).slice(0, 3).toLowerCase()}/{a.pago_ate.slice(2, 4)}</Pilula></div>}{a.devido === 0 ? <span className="suave">—</span> : aberto > 0.009 ? (a.pago > 0 ? <Pilula tipo="atraso">Saldo <Num v={aberto} /></Pilula> : <Pilula tipo="atraso">Em aberto</Pilula>) : <Pilula tipo="ok">Pago</Pilula>}</td>
                   <td onClick={(e) => e.stopPropagation()} style={{ textAlign: 'right' }}>
                     <Botao pequeno tipo={a.ativo ? 'perigo' : 'padrao'} onClick={() => alternar(a)}>{a.ativo ? 'Inativar' : 'Reativar'}</Botao>
                   </td>
