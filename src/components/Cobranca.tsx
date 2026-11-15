@@ -20,8 +20,8 @@ export interface MensalidadeEditavel {
 }
 
 /** Divide a mensalidade do mês entre modalidades (ex.: 150 = 70 Zumba + 80 Funcional). */
-export function DividirModal({ alunoId, nome, competencia, total, modalidadeIds, onFechar, onSalvo }: {
-  alunoId: number; nome: string; competencia: string; total: number; modalidadeIds: number[]; onFechar: () => void; onSalvo: () => void;
+export function DividirModal({ alunoId, nome, competencia, total, aPartir = false, modalidadeIds, onFechar, onSalvo }: {
+  alunoId: number; nome: string; competencia: string; total: number; aPartir?: boolean; modalidadeIds: number[]; onFechar: () => void; onSalvo: () => void;
 }) {
   const { base, toast, recarregar } = useApp();
   const mods = (base?.modalidades ?? []).filter((m) => modalidadeIds.length > 1 ? modalidadeIds.includes(m.id) : true);
@@ -37,8 +37,8 @@ export function DividirModal({ alunoId, nome, competencia, total, modalidadeIds,
   async function salvar() {
     setSalvando(true);
     try {
-      await post(`/alunos/${alunoId}/dividir`, { competencia, partes, propagar });
-      toast('Mensalidade dividida.');
+      await post(`/alunos/${alunoId}/dividir`, { competencia, partes, propagar: aPartir || propagar });
+      toast(aPartir ? `Dividida a partir de ${nomeComp(competencia, true).toLowerCase()}.` : 'Mensalidade dividida.');
       await recarregar();
       onSalvo();
     } catch (e) { toast(e instanceof Error ? e.message : 'Erro', true); } finally { setSalvando(false); }
@@ -48,7 +48,7 @@ export function DividirModal({ alunoId, nome, competencia, total, modalidadeIds,
     <Modal titulo="Dividir por modalidade" onFechar={onFechar}>
       <div>
         <div style={{ fontWeight: 600, fontSize: 17 }}>{nome}</div>
-        <div className="suave pequeno">{nomeComp(competencia)} · hoje <span className="num">{dinheiro(total)}</span> em uma mensalidade só</div>
+        <div className="suave pequeno">{aPartir ? <>O mês atual já tem pagamento. Vale a partir de {nomeComp(competencia, true).toLowerCase()} e nos meses seguintes</> : nomeComp(competencia)} · hoje <span className="num">{dinheiro(total)}</span> em uma mensalidade só</div>
       </div>
       <form className="form" onSubmit={(e) => { e.preventDefault(); if (valido) void salvar(); }}>
         {mods.map((m, i) => (
@@ -56,10 +56,10 @@ export function DividirModal({ alunoId, nome, competencia, total, modalidadeIds,
             <input inputMode="decimal" value={valores[m.id] ?? ''} onChange={(e) => setValores({ ...valores, [m.id]: e.target.value })} autoFocus={i === 0} />
           </Campo>
         ))}
-        <label style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 44 }}>
+        {!aPartir && <label style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 44 }}>
           <input type="checkbox" checked={propagar} onChange={(e) => setPropagar(e.target.checked)} style={{ width: 20, height: 20 }} />
           Aplicar também aos próximos meses
-        </label>
+        </label>}
       </form>
       <div className="suave pequeno">
         Total: <span className="num">{dinheiro(soma)}</span>
