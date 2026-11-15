@@ -58,7 +58,7 @@ export function Painel() {
           <h2>Faturamento por modalidade</h2>
           {r.porModalidade.map((m) => (
             <button key={m.id ?? 'x'} type="button" className="modalidade-link" onClick={() => setModAberta(m)} title={`Ver mensalidades de ${m.nome}`}>
-              <span style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}><span>{m.nome} <span className="suave pequeno">· {m.alunos} {m.alunos === 1 ? 'aluno' : 'alunos'}</span> ›</span><Num v={m.faturamento} /></span>
+              <span style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}><span>{m.nome} <span className="suave pequeno">· {m.alunos} {m.alunos === 1 ? 'aluno' : 'alunos'} · {m.matriculasTurmas} {m.matriculasTurmas === 1 ? 'matrícula' : 'matrículas'}</span> ›</span><Num v={m.faturamento} /></span>
               <span className="barra"><i style={{ width: `${(m.faturamento / (r.faturamento || 1)) * 100}%` }} /></span>
               {m.aberto > 0.009 && (
                 <span className="pequeno" style={{ display: 'flex', justifyContent: 'flex-end', color: '#C62828', fontWeight: 600 }}>
