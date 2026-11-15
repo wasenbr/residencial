@@ -25,19 +25,23 @@ function dados(p: Partial<DadosResumo>): DadosResumo {
 test('Dashboard conta matrículas por turma, como a tela Turmas', () => {
   const r = calcularResumo(dados({
     turmas: [turma(7, 3), turma(8, 3), turma(9, 3, 0), turma(20, 5)],
+    alunos: [1, 2, 3, 4, 5, 6].map((id) => ({ id, nome: `A${id}`, ativo: id === 6 ? 0 : 1, origem: 'particular' })),
     matriculas: [
       mat(1, 7), mat(1, 8),     // nas duas turmas de Spinning: 2 matrículas
       mat(2, 7), mat(2, 9),     // turma 9 inativa: só 1
       mat(3, 7), mat(3, 20),    // mensalidade sem modalidade, rateada entre Spinning e Step
       mat(4, 8),                // mensalidade cancelada: não conta
+      mat(6, 7),                // aluno inativo: não conta
     ],
     mensalidades: [
       mens(1, 1, 3), mens(2, 2, 3), mens(3, 3, null), mens(4, 4, 3, 100, 1),
       mens(5, 5, 3),            // sem turma de Spinning: conta 1
+      mens(6, 6, 3, 50),        // inativo: fora da contagem, mas o valor fica no faturamento
     ],
   }));
   const sp = r.porModalidade.find((m) => m.nome === 'Spinning')!;
   expect(sp.alunos).toBe(4);
   expect(sp.matriculasTurmas).toBe(5);
+  expect(sp.faturamento).toBe(400);
   expect(r.porModalidade.find((m) => m.nome === 'Step')!.matriculasTurmas).toBe(1);
 });

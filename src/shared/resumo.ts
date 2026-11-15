@@ -27,7 +27,7 @@ export interface DadosResumo {
 
 export interface LinhaModalidade {
   id: number | null; nome: string; matriculas: number;
-  /** Alunos com mensalidade no mês nesta modalidade (cada aluno conta uma vez). */
+  /** Alunos ativos com mensalidade no mês nesta modalidade (cada aluno conta uma vez). */
   alunos: number;
   /** Matrículas em turmas ativas desta modalidade de quem tem mensalidade no mês (aluno em 2 turmas conta 2, como na tela Turmas).
    *  Quem não tem turma ativa na modalidade conta 1. */
@@ -108,6 +108,7 @@ export function calcularResumo(d: DadosResumo): Resumo {
   const turmas = new Map(d.turmas.map((t) => [t.id, t]));
   const modNome = new Map(d.modalidades.map((m) => [m.id, m.nome]));
   const alunoNome = new Map(d.alunos.map((a) => [a.id, a.nome]));
+  const alunoAtivo = new Set(d.alunos.filter((a) => a.ativo).map((a) => a.id));
   const matsPorAluno = new Map<number, Matricula[]>();
   for (const mt of d.matriculas) {
     if (!matsPorAluno.has(mt.aluno_id)) matsPorAluno.set(mt.aluno_id, []);
@@ -140,16 +141,19 @@ export function calcularResumo(d: DadosResumo): Resumo {
     for (const [mod, frac] of partes) {
       const l = linha(mod);
       l.matriculas += frac;
-      if (!alunosPorModalidade.has(mod)) alunosPorModalidade.set(mod, new Set());
-      alunosPorModalidade.get(mod)!.add(m.aluno_id);
-      if (!matriculasPorModalidade.has(mod)) matriculasPorModalidade.set(mod, new Set());
-      const chaves = matriculasPorModalidade.get(mod)!;
-      const nasTurmas = (matsPorAluno.get(m.aluno_id) ?? []).filter((mt) => {
-        const t = turmas.get(mt.turma_id);
-        return t != null && t.ativo && t.modalidade_id === mod;
-      });
-      if (nasTurmas.length) for (const mt of nasTurmas) chaves.add(`${m.aluno_id}:${mt.turma_id}`);
-      else chaves.add(`${m.aluno_id}:-`);
+      // Contagem de alunos/matrículas só com alunos ativos (o dinheiro continua contando).
+      if (alunoAtivo.has(m.aluno_id)) {
+        if (!alunosPorModalidade.has(mod)) alunosPorModalidade.set(mod, new Set());
+        alunosPorModalidade.get(mod)!.add(m.aluno_id);
+        if (!matriculasPorModalidade.has(mod)) matriculasPorModalidade.set(mod, new Set());
+        const chaves = matriculasPorModalidade.get(mod)!;
+        const nasTurmas = (matsPorAluno.get(m.aluno_id) ?? []).filter((mt) => {
+          const t = turmas.get(mt.turma_id);
+          return t != null && t.ativo && t.modalidade_id === mod;
+        });
+        if (nasTurmas.length) for (const mt of nasTurmas) chaves.add(`${m.aluno_id}:${mt.turma_id}`);
+        else chaves.add(`${m.aluno_id}:-`);
+      }
       l.faturamento += m.valor * frac;
       l.recebido += pago * frac;
       l.aberto += falta * frac;
