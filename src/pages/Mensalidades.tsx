@@ -90,7 +90,7 @@ export function Mensalidades() {
                 <td className="esconde-cel">{m.formas ? m.formas.split(',').map((f) => FORMA_ROTULO[f] ?? f).join(', ') : '—'}</td>
                 <td>{s === 'pago' ? <Pilula tipo="ok">Pago</Pilula> : s === 'parcial' ? <Pilula tipo="atraso">Parcial</Pilula> : s === 'atraso' ? <Pilula tipo="atraso">Venceu {diaMes(m.vencimento)}</Pilula> : <Pilula tipo="aberto">A vencer</Pilula>}</td>
                 <td className="d"><span className="acoes-linha">
-                  {!fechado && <button className="link" onClick={() => setAlterar({ id: m.id, nome: m.aluno, competencia: comp, descricao: m.modalidade ?? m.descricao ?? '', valor: m.valor, contrato: m.contrato_id != null })}>Alterar</button>}
+                  {!fechado && <button className="link" onClick={() => setAlterar({ id: m.id, nome: m.aluno, competencia: comp, descricao: m.modalidade ?? m.descricao ?? '', valor: m.valor, contrato: m.contrato_id != null, pago: m.pago })}>Alterar</button>}
                   {(s === 'atraso' || s === 'parcial') && !m.recorrente && <BotaoCobrar aluno={{ ...m, nome: m.aluno }} competencia={comp} valor={falta} vencimento={m.vencimento} />}
                   {s !== 'pago' && <Botao pequeno onClick={() => setPagar({ mensalidade_id: m.id, nome: m.aluno, descricao: m.modalidade ?? m.descricao ?? '', aberto: falta, forma: m.forma_pagamento })}>Registrar pagamento</Botao>}
                 </span></td>

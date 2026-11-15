@@ -58,7 +58,7 @@ export function AlunoFicha() {
   const valorRecente = ativas.find((m) => m.competencia <= comp)?.valor ?? null;
   const editavel = (m: Ficha['mensalidades'][number]): MensalidadeEditavel => ({
     id: m.id, nome: aluno.nome, competencia: m.competencia, descricao: m.modalidade ?? m.descricao ?? '', valor: m.valor,
-    contrato: m.contrato_id != null,
+    contrato: m.contrato_id != null, pago: m.pago,
   });
 
   async function acao(fn: () => Promise<unknown>, ok: string) {

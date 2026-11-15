@@ -17,6 +17,8 @@ export function BotaoCobrar({ aluno, competencia, valor, vencimento }: {
 
 export interface MensalidadeEditavel {
   id: number; nome: string; competencia: string; descricao: string; valor: number; contrato: boolean;
+  /** Quanto já foi pago, para avisar ao cancelar. */
+  pago?: number;
 }
 
 /** Divide a mensalidade do mês entre modalidades (ex.: 150 = 70 Zumba + 80 Funcional). */
@@ -80,6 +82,7 @@ export function AlterarValorModal({ item, onFechar, onSalvo }: { item: Mensalida
   const [valor, setValor] = useState(String(item.valor).replace('.', ','));
   const [propagar, setPropagar] = useState(true);
   const [salvando, setSalvando] = useState(false);
+  const [confirmarCancelar, setConfirmarCancelar] = useState(false);
   const v = Number(valor.replace(',', '.'));
   const valido = valor.trim() !== '' && Number.isFinite(v) && v >= 0 && Math.abs(v - item.valor) > 0.009;
 
@@ -91,6 +94,32 @@ export function AlterarValorModal({ item, onFechar, onSalvo }: { item: Mensalida
       await recarregar();
       onSalvo();
     } catch (e) { toast(e instanceof Error ? e.message : 'Erro', true); } finally { setSalvando(false); }
+  }
+
+  async function cancelar() {
+    setSalvando(true);
+    try {
+      await put(`/mensalidades/${item.id}`, { cancelada: 1 });
+      toast('Mensalidade cancelada.');
+      await recarregar();
+      onSalvo();
+    } catch (e) { toast(e instanceof Error ? e.message : 'Erro', true); } finally { setSalvando(false); }
+  }
+
+  if (confirmarCancelar) {
+    return (
+      <Modal titulo="Cancelar mensalidade" onFechar={onFechar}>
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 17 }}>{item.nome}</div>
+          <div className="suave pequeno">{[item.descricao, nomeComp(item.competencia)].filter(Boolean).join(' · ')} · <span className="num">{dinheiro(item.valor)}</span></div>
+        </div>
+        <div>A mensalidade sai do faturamento, do dashboard e das cobranças.{item.pago ? <> O que já foi pago (<span className="num">{dinheiro(item.pago)}</span>) também deixa de contar no caixa.</> : null}</div>
+        <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+          <Botao onClick={() => setConfirmarCancelar(false)}>Voltar</Botao>
+          <Botao tipo="perigo" onClick={cancelar} desligado={salvando}>Cancelar mensalidade</Botao>
+        </div>
+      </Modal>
+    );
   }
 
   return (
@@ -111,8 +140,9 @@ export function AlterarValorModal({ item, onFechar, onSalvo }: { item: Mensalida
           ? 'Os meses seguintes já gerados que ainda estavam com o valor antigo mudam junto, e os próximos que forem gerados seguem o novo valor.'
           : 'Só este mês muda. Como os meses novos são copiados do anterior, o próximo mês também sairá com este valor.'}
       </div>
-      <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-        <Botao onClick={onFechar}>Cancelar</Botao>
+      <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+        <span style={{ marginRight: 'auto' }}><Botao tipo="perigo" onClick={() => setConfirmarCancelar(true)}>Cancelar mensalidade</Botao></span>
+        <Botao onClick={onFechar}>Fechar</Botao>
         <Botao tipo="primario" onClick={salvar} desligado={!valido || salvando}>Salvar</Botao>
       </div>
     </Modal>
