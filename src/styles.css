@@ -1,8 +1,9 @@
 :root {
   --fundo: #F4F5F2; --cartao: #FFFFFF; --borda: #E2E4DF; --borda-forte: #CDD1CB; --linha: #EEF0EC;
-  --texto: #1B1F1D; --suave: #565D59; --marca: #0F6E5C; --marca-escura: #0B5A4B; --marca-clara: #DCEBE6;
+  --texto: #1B1F1D; --suave: #565D59; --marca: #7E4F96; --marca-escura: #5F3A73; --marca-clara: #F0E7F5;
   --atraso: #8F3605; --atraso-fundo: #FCE6D6; --atraso-borda: #F2C9AC; --neutro: #E9ECEF; --neutro-texto: #3D4650;
   --azul: #2F4A73;
+  --verde: #3E8E48; --verde-escuro: #2C6A34; --verde-claro: #E3F2E4; --lilas: #A574B4;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--fundo); color: var(--texto); font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15px; -webkit-text-size-adjust: 100%; }
@@ -17,7 +18,9 @@ h2 { margin: 0; font-size: 16px; font-weight: 700; }
 /* Estrutura */
 .app { min-height: 100vh; display: flex; }
 .menu { width: 232px; flex: none; background: var(--cartao); border-right: 1px solid var(--borda); padding: 24px 16px; display: flex; flex-direction: column; gap: 4px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
-.menu .marca { padding: 0 14px 20px; font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
+.menu .marca { display: block; padding: 0 10px 20px; }
+.menu .marca img { display: block; width: 100%; height: auto; }
+.logo-topo { display: block; width: 150px; height: auto; }
 .menu a { display: flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 8px; color: #3A403D; text-decoration: none; font-size: 14px; }
 .menu a:hover { background: #ECEEEA; }
 .menu a.ativo { background: var(--marca-clara); color: var(--marca-escura); font-weight: 600; }
@@ -51,7 +54,7 @@ table.tbl { border-collapse: collapse; width: 100%; font-size: 14px; }
 .tbl tr.clicavel:hover td { background: #FAFBF9; }
 .tbl tfoot td { font-weight: 700; border-top: 1px solid var(--borda); }
 .pilula { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
-.pilula.ok { background: var(--marca-clara); color: var(--marca-escura); }
+.pilula.ok { background: var(--verde-claro); color: var(--verde-escuro); }
 .pilula.atraso { background: var(--atraso-fundo); color: var(--atraso); }
 .pilula.aberto { background: var(--neutro); color: var(--neutro-texto); }
 .pilula.info { background: #E3EAF5; color: var(--azul); }
@@ -77,10 +80,10 @@ button.modalidade-link:focus-visible { outline: 2px solid var(--marca); outline-
 .form { display: flex; flex-direction: column; gap: 16px; }
 .linha-campos { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; }
 .faixa { padding: 14px 16px; border-radius: 12px; background: var(--atraso-fundo); border: 1px solid var(--atraso-borda); color: #5B2503; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
-.faixa.info { background: var(--marca-clara); border-color: #BFD8D0; color: var(--marca-escura); }
+.faixa.info { background: var(--marca-clara); border-color: #DCC8E6; color: var(--marca-escura); }
 .vazio { padding: 32px; text-align: center; color: var(--suave); }
 .barra { height: 10px; background: var(--linha); border-radius: 5px; overflow: hidden; }
-.barra > i { display: block; height: 100%; background: var(--marca); border-radius: 5px; }
+.barra > i { display: block; height: 100%; background: var(--verde); border-radius: 5px; }
 .fichas { display: flex; flex-wrap: wrap; gap: 8px; }
 .ficha { padding: 8px 14px; border-radius: 999px; border: 1px solid var(--borda-forte); background: #fff; cursor: pointer; font-weight: 600; font-size: 14px; min-height: 40px; }
 .ficha.ativa { background: var(--marca-clara); border-color: var(--marca); color: var(--marca-escura); }
@@ -119,7 +122,7 @@ body.captura .conteudo { padding-bottom: 24px; }
 .cap-card { background: var(--cartao); border: 1px solid var(--borda); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .cap-passos { display: flex; gap: 4px; }
 .cap-passos button { flex: 1; min-width: 0; border: 0; border-top: 4px solid var(--linha); background: none; padding: 8px 0 4px; font-size: 12px; font-weight: 600; color: var(--suave); cursor: pointer; }
-.cap-passos button.feito { border-top-color: #9FC9BC; }
+.cap-passos button.feito { border-top-color: #CDB5DA; }
 .cap-passos button.ativo { border-top-color: var(--marca); color: var(--marca-escura); }
 .cap-opcoes { display: flex; flex-wrap: wrap; gap: 8px; }
 .cap-opcoes .ficha { flex: 1; min-height: 44px; }

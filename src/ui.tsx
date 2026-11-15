@@ -93,7 +93,7 @@ export function Menu() {
   const itens: [string, string][] = [['/', 'Dashboard'], ['/historico', 'Visão anual'], ['/alunos', 'Alunos'], ['/turmas', 'Turmas'], ['/mensalidades', 'Mensalidades'], ['/gympass', 'Gympass'], ['/despesas', 'Despesas'], ['/fechamento', 'Fechamento'], ['/importar', 'Importar planilha'], ['/configuracoes', 'Configurações']];
   return (
     <nav className="menu" aria-label="Menu principal">
-      <div className="marca">{base?.config.nome_academia || 'Minha academia'}</div>
+      <div className="marca"><img src="/logo.png" alt={base?.config.nome_academia || 'Residencial Fitness'} /></div>
       {itens.map(([to, rot]) => <NavLink key={to} to={to} end={to === '/'} className={({ isActive }) => (isActive ? 'ativo' : '')}>{rot}</NavLink>)}
       <div className="rodape">{MESES[new Date().getMonth()]} {new Date().getFullYear()}</div>
     </nav>

@@ -13,7 +13,7 @@ interface Mes {
   porModalidade: Record<string, number>;
 }
 
-const CORES_CAT = ['#2F4A73', '#0F6E5C', '#8F3605', '#7A5C12', '#6B3F7A', '#4A7A8C', '#565D59'];
+const CORES_CAT = ['#7E4F96', '#3E8E48', '#8F3605', '#7A5C12', '#2F4A73', '#4A7A8C', '#565D59'];
 const COR = { marca: 'var(--marca)', azul: 'var(--azul)', atraso: 'var(--atraso)', suave: 'var(--suave)' };
 const rotMes = (c: string) => `${nomeComp(c, true).slice(0, 3).toLowerCase()}/${c.slice(2, 4)}`;
 const pct = (n: number) => `${n.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;

@@ -1,6 +1,7 @@
 // Relatório de avaliação física em PDF, gerado no aparelho (jsPDF, desenho vetorial).
 // Carregado sob demanda: import('../pdf/relatorio').
 import { jsPDF } from 'jspdf';
+import logo from './logo.jpg?inline';
 import {
   calcular, DOBRAS, f1, frase, medidasDe, NOME_DOBRA, PERIMETROS, PROTOCOLOS, type Classe, type Resultado,
 } from '../shared/avaliacao';
@@ -9,10 +10,10 @@ import type { Aluno, Avaliacao } from '../shared/tipos';
 
 type RGB = [number, number, number];
 const COR = {
-  marca: [15, 110, 92] as RGB, marcaClara: [220, 235, 230] as RGB, gorda: [143, 54, 5] as RGB, azul: [47, 74, 115] as RGB,
+  marca: [126, 79, 150] as RGB, marcaClara: [240, 231, 245] as RGB, verde: [62, 142, 72] as RGB, gorda: [143, 54, 5] as RGB, azul: [47, 74, 115] as RGB,
   extra: [122, 92, 18] as RGB, texto: [27, 31, 29] as RGB, suave: [86, 93, 89] as RGB, linha: [226, 228, 223] as RGB, fundo: [246, 247, 244] as RGB,
 };
-const TOM: Record<Classe['tom'], RGB> = { ok: COR.marca, atencao: COR.extra, alerta: COR.gorda };
+const TOM: Record<Classe['tom'], RGB> = { ok: COR.verde, atencao: COR.extra, alerta: COR.gorda };
 const W = 210, H = 297, M = 14, CW = W - 2 * M;
 
 const data4 = (d: string) => { const [a, m, dia] = d.split('-'); return `${dia}/${m}/${a}`; };
@@ -24,7 +25,7 @@ type Item = { a: Avaliacao; r: Resultado };
 export interface Relatorio { blob: Blob; nome: string }
 
 /** Relatório da avaliação `avaliacaoId` (ou da última), com a evolução até ela. */
-export function gerarRelatorio({ aluno, avaliacoes, avaliacaoId, academia }: {
+export function gerarRelatorio({ aluno, avaliacoes, avaliacaoId }: {
   aluno: Aluno; avaliacoes: Avaliacao[]; avaliacaoId?: number; academia?: string;
 }): Relatorio {
   const todas = [...avaliacoes].sort((x, y) => (x.data === y.data ? x.id - y.id : x.data < y.data ? -1 : 1));
@@ -40,7 +41,7 @@ export function gerarRelatorio({ aluno, avaliacoes, avaliacaoId, academia }: {
   const novaPagina = () => { doc.addPage(); y = M + 4; };
   const espaco = (h: number) => { if (y + h > H - 18) novaPagina(); };
   const titulo = (t: string, minimo = 14) => {
-    if (y > 50) y += 3;
+    if (y > 60) y += 3;
     espaco(minimo);
     fonte(12, 'bold', COR.marca); doc.text(t, M, y);
     doc.setDrawColor(...COR.marca); doc.setLineWidth(0.4); doc.line(M, y + 1.8, M + CW, y + 1.8);
@@ -48,17 +49,19 @@ export function gerarRelatorio({ aluno, avaliacoes, avaliacaoId, academia }: {
   };
 
   // ---------- Cabeçalho ----------
-  doc.setFillColor(...COR.marca); doc.rect(0, 0, W, 34, 'F');
-  fonte(8, 'bold', [200, 230, 220]); doc.text('RELATÓRIO DE AVALIAÇÃO FÍSICA', M, 11);
-  fonte(18, 'bold', [255, 255, 255]); doc.text(doc.splitTextToSize(aluno.nome, 110)[0], M, 20);
+  const lw = 52, lh = lw * 253 / 600;
+  doc.addImage(logo, 'JPEG', M - 1, 6, lw, lh);
+  fonte(8, 'bold', COR.marca); doc.text('RELATÓRIO DE AVALIAÇÃO FÍSICA', W - M, 11, { align: 'right' });
+  fonte(9, 'normal', COR.suave);
+  doc.text(`Avaliação de ${data4(atual.a.data)}`, W - M, 17, { align: 'right' });
+  if (atual.a.avaliador) doc.text(`Avaliado por ${atual.a.avaliador}`, W - M, 22, { align: 'right' });
+  doc.text(`${hist.length}ª avaliação`, W - M, atual.a.avaliador ? 27 : 22, { align: 'right' });
+  doc.setFillColor(...COR.marca); doc.rect(0, 33, W, 17, 'F');
+  doc.setFillColor(...COR.verde); doc.rect(0, 50, W, 1.2, 'F');
+  fonte(16, 'bold', [255, 255, 255]); doc.text(doc.splitTextToSize(aluno.nome, CW - 50)[0], M, 42);
   const sexo = atual.a.sexo === 'F' ? 'Feminino' : 'Masculino';
-  fonte(9, 'normal', [230, 242, 238]); doc.text(`${atual.a.idade} anos · ${sexo}${atual.a.estatura ? ` · ${f1(atual.a.estatura, 0)} cm` : ''}`, M, 27);
-  fonte(10, 'bold', [255, 255, 255]); if (academia) doc.text(academia, W - M, 12, { align: 'right' });
-  fonte(9, 'normal', [230, 242, 238]);
-  doc.text(`Avaliação de ${data4(atual.a.data)}`, W - M, 19, { align: 'right' });
-  if (atual.a.avaliador) doc.text(`Avaliado por ${atual.a.avaliador}`, W - M, 25, { align: 'right' });
-  doc.text(`${hist.length}ª avaliação`, W - M, 31, { align: 'right' });
-  y = 44;
+  fonte(9, 'normal', [240, 231, 245]); doc.text(`${atual.a.idade} anos · ${sexo}${atual.a.estatura ? ` · ${f1(atual.a.estatura, 0)} cm` : ''}`, M, 47);
+  y = 60;
 
   // ---------- Resultado atual ----------
   titulo('Resultado atual');
@@ -84,7 +87,7 @@ export function gerarRelatorio({ aluno, avaliacoes, avaliacaoId, academia }: {
     if (k.antes != null && k.v != null) {
       const d = k.v - k.antes;
       const txt = Math.abs(d) < 0.05 ? 'igual' : `${d > 0 ? '+' : '-'}${f1(Math.abs(d))}${k.du ?? k.un}`;
-      const c = k.bom === 0 || Math.abs(d) < 0.05 ? COR.suave : (d > 0) === (k.bom === 1) ? COR.marca : COR.gorda;
+      const c = k.bom === 0 || Math.abs(d) < 0.05 ? COR.suave : (d > 0) === (k.bom === 1) ? COR.verde : COR.gorda;
       fonte(8, 'bold', c);
       const xx = linha ? x + 4 + doc.getTextWidth(linha) + 4 : x + 4;
       doc.text(`${txt}`, xx, yy + 19);
@@ -116,7 +119,7 @@ export function gerarRelatorio({ aluno, avaliacoes, avaliacaoId, academia }: {
   // ---------- Gráficos ----------
   const graficos: { titulo: string; un: string; series: { nome: string; cor: RGB; valores: (number | null)[]; tracejada?: boolean }[] }[] = [
     { titulo: 'Composição corporal (kg)', un: 'kg', series: [
-      { nome: 'Massa magra', cor: COR.marca, valores: hist.map((i) => i.r.massaMagra) },
+      { nome: 'Massa magra', cor: COR.verde, valores: hist.map((i) => i.r.massaMagra) },
       { nome: 'Massa gorda', cor: COR.gorda, valores: hist.map((i) => i.r.massaGorda) }] },
     { titulo: '% de gordura', un: '%', series: [{ nome: '% de gordura', cor: COR.gorda, valores: hist.map((i) => i.r.gordura) }] },
     { titulo: 'Peso (kg)', un: 'kg', series: [
@@ -171,7 +174,7 @@ export function gerarRelatorio({ aluno, avaliacoes, avaliacaoId, academia }: {
     const bw = blocos.length === 2 ? (CW - 8) / 2 : CW;
     const altura = Math.max(...blocos.map((b) => b.linhas.length)) * 6.4 + 16;
     espaco(altura);
-    const y0 = y + (y > 50 ? 3 : 0);
+    const y0 = y + (y > 60 ? 3 : 0);
     let yFim = y0;
     blocos.forEach((b, i) => {
       const x = M + i * (bw + 8);

@@ -146,7 +146,7 @@ export function GraficoEvolucao({ datas, series, un, casas = 1 }: { datas: strin
 
 // ---------- Seção na ficha do aluno ----------
 type Item = { a: Avaliacao; r: Resultado };
-const COR = { magra: '#0F6E5C', gorda: '#8F3605', peso: '#2F4A73', extra: '#7A5C12' };
+const COR = { magra: '#3E8E48', gorda: '#8F3605', peso: '#2F4A73', extra: '#7A5C12' };
 
 const INDICADORES: { id: string; nome: string; un: string; casas?: number; series: (it: Item[]) => Serie[] }[] = [
   { id: 'composicao', nome: 'Composição', un: ' kg', series: (it) => [

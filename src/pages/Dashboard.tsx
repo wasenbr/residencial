@@ -224,7 +224,7 @@ function Inicio() {
   return (
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12 }}>
-        <div><div className="pequeno suave">{nomeComp(comp)}</div><h1>Olá{base?.config.nome_usuario ? `, ${base.config.nome_usuario}` : ''}</h1></div>
+        <div><img className="logo-topo so-cel" src="/logo.png" alt="Residencial Fitness" style={{ marginBottom: 12 }} /><div className="pequeno suave">{nomeComp(comp)}</div><h1>Olá{base?.config.nome_usuario ? `, ${base.config.nome_usuario}` : ''}</h1></div>
         <Link to="/dashboard" style={{ fontWeight: 600, minHeight: 44, display: 'flex', alignItems: 'center' }}>Ver completo</Link>
       </div>
       {!r.mesGerado && <SemMes comp={comp} onGerado={recarregar} />}
