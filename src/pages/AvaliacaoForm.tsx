@@ -1,24 +1,26 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { del, get, post, put } from '../api';
 import {
-  ALVO_PADRAO, calcular, COMO_MEDIR, DOBRAS, estaturaCm, idadeEm, NOME_DOBRA, NOME_PERIMETRO, PERIMETROS, PROTOCOLOS,
+  ALVO_PADRAO, calcular, COMO_MEDIR, diasEntre, DOBRAS, estaturaCm, idadeEm, NOME_DOBRA, PERIMETROS, PROTOCOLOS,
   type Dobra, type Medidas, type Perimetro, type Protocolo, type Resultado, type Sexo,
 } from '../shared/avaliacao';
 import type { Aluno, Avaliacao } from '../shared/tipos';
 import { useApp } from '../store';
-import { Botao, Campo, Carregando, Modal, Topo, dataBR, useDados } from '../ui';
-import { Delta, f1, frase, medidasDe, Selo } from '../components/Avaliacao';
+import { Botao, Campo, Carregando, Modal, Topo, dataBR, useDados, useLargura } from '../ui';
+import { BotaoPdf, Delta, f1, frase, medidasDe, Selo } from '../components/Avaliacao';
+import { CapturaCelular } from './AvaliacaoCelular';
 
-type Trio = [string, string, string];
-interface Form {
+export type Trio = [string, string, string];
+export interface Form {
   data: string; avaliador: string; sexo: Sexo | ''; idade: string; peso: string; estatura: string;
   protocolo: Protocolo; alvo: string; dobras: Record<Dobra, Trio>; perimetros: Record<Perimetro, string>;
   pas: string; pad: string; fc: string; laudo: string;
 }
+export type Anterior = { a: Avaliacao; r: Resultado } | null;
 
-const s = (n: number | null | undefined) => (n == null ? '' : String(n).replace('.', ','));
-const n = (t: string): number | null => { const v = Number(t.trim().replace(',', '.')); return t.trim() === '' || !Number.isFinite(v) ? null : v; };
+export const s = (v: number | null | undefined) => (v == null ? '' : String(v).replace('.', ','));
+export const n = (t: string): number | null => { const v = Number(t.trim().replace(',', '.')); return t.trim() === '' || !Number.isFinite(v) ? null : v; };
 const hoje = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const vazioDobras = () => Object.fromEntries(DOBRAS.map((d) => [d, ['', '', '']])) as Record<Dobra, Trio>;
 const vazioPerim = () => Object.fromEntries(PERIMETROS.map(([k]) => [k, ''])) as Record<Perimetro, string>;
@@ -34,7 +36,7 @@ function formDe(a: Avaliacao): Form {
   };
 }
 
-function medidasDoForm(f: Form): Medidas | null {
+export function medidasDoForm(f: Form): Medidas | null {
   if (!f.sexo) return null;
   return {
     sexo: f.sexo, idade: n(f.idade) ?? 0, peso: n(f.peso), estatura: estaturaCm(n(f.estatura)), protocolo: f.protocolo, alvo_gordura: n(f.alvo),
@@ -61,19 +63,43 @@ function Editor({ aluno, lista, atual }: { aluno: Aluno; lista: Avaliacao[]; atu
   const nav = useNavigate();
   const { base, toast } = useApp();
   const ultima = lista[lista.length - 1] ?? null;
-  const [f, setF] = useState<Form>(() => {
+  const inicial = (): Form => {
     if (atual) return formDe(atual);
     const data = hoje();
     return {
       data, avaliador: ultima?.avaliador ?? '', sexo: aluno.sexo ?? ultima?.sexo ?? '',
-      idade: String(idadeEm(aluno.nascimento, data) ?? ''), peso: '', estatura: s(ultima?.estatura),
+      // Sem nascimento no cadastro: idade da última avaliação + o tempo que passou desde ela.
+      idade: String(idadeEm(aluno.nascimento, data) ?? (ultima ? ultima.idade + Math.floor(diasEntre(ultima.data, data) / 365.25) : '')),
+      peso: '', estatura: s(ultima?.estatura),
       protocolo: ultima?.protocolo ?? 'jp7', alvo: s(ultima?.alvo_gordura), dobras: vazioDobras(), perimetros: vazioPerim(),
       pas: '', pad: '', fc: '', laudo: '',
     };
-  });
+  };
+  const [f, setF] = useState<Form>(inicial);
   const [salvando, setSalvando] = useState(false);
   const [excluir, setExcluir] = useState(false);
   const [ajuda, setAjuda] = useState<Dobra | null>(null);
+  const celular = useLargura(860);
+  const [formCompleto, setFormCompleto] = useState(false);
+
+  // Rascunho da avaliação nova: guardado a cada mudança, para não perder nada se o celular bloquear ou a página recarregar.
+  const chaveRascunho = `aval-rascunho-${aluno.id}`;
+  const [recuperado, setRecuperado] = useState<string | null>(null);
+  useEffect(() => {
+    if (atual) return;
+    try {
+      const r = JSON.parse(localStorage.getItem(chaveRascunho) ?? 'null') as { f: Form; em: string } | null;
+      if (r?.f?.dobras) { setF(r.f); setRecuperado(r.em); }
+    } catch { /* sem armazenamento */ }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (atual) return;
+    const t = setTimeout(() => { try { localStorage.setItem(chaveRascunho, JSON.stringify({ f, em: new Date().toISOString() })); } catch { /* sem armazenamento */ } }, 300);
+    return () => clearTimeout(t);
+  }, [f]); // eslint-disable-line react-hooks/exhaustive-deps
+  const limparRascunho = () => { try { localStorage.removeItem(chaveRascunho); } catch { /* sem armazenamento */ } };
+  const descartarRascunho = () => { limparRascunho(); setRecuperado(null); setF(inicial()); };
+
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((x) => ({ ...x, [k]: v }));
   const setDobra = (d: Dobra, i: number, v: string) => setF((x) => {
     const t = [...x.dobras[d]] as Trio; t[i] = v;
@@ -84,7 +110,7 @@ function Editor({ aluno, lista, atual }: { aluno: Aluno; lista: Avaliacao[]; atu
   const medidas = medidasDoForm(f);
   const r = useMemo(() => (medidas ? calcular(medidas) : null), [JSON.stringify(medidas)]); // eslint-disable-line react-hooks/exhaustive-deps
   // Avaliação anterior a esta (pela data), para comparar.
-  const anterior = useMemo(() => {
+  const anterior: Anterior = useMemo(() => {
     const a = [...lista].filter((x) => x.id !== atual?.id && x.data <= f.data).pop() ?? null;
     return a ? { a, r: calcular(medidasDe(a)) } : null;
   }, [lista, atual, f.data]);
@@ -99,21 +125,59 @@ function Editor({ aluno, lista, atual }: { aluno: Aluno; lista: Avaliacao[]; atu
       pa_sistolica: n(f.pas), pa_diastolica: n(f.pad), fc_repouso: n(f.fc), laudo: f.laudo,
     };
     try {
-      if (atual) { await put(`/avaliacoes/${atual.id}`, corpo); toast('Avaliação salva.'); nav(`/alunos/${aluno.id}`); }
-      else { await post<{ id: number }>(`/alunos/${aluno.id}/avaliacoes`, corpo); toast('Avaliação lançada.'); nav(`/alunos/${aluno.id}`); }
+      if (atual) {
+        await put(`/avaliacoes/${atual.id}`, corpo);
+        toast('Avaliação salva.');
+        if (celular && !formCompleto) { setSalvando(false); return; }
+      } else {
+        const { id } = await post<{ id: number }>(`/alunos/${aluno.id}/avaliacoes`, corpo);
+        limparRascunho();
+        toast('Avaliação lançada.');
+        // No celular, abre a avaliação salva (resultado e envio do PDF); no computador, volta à ficha.
+        if (celular && !formCompleto) { nav(`/alunos/${aluno.id}/avaliacoes/${id}`, { replace: true }); return; }
+      }
+      nav(`/alunos/${aluno.id}`);
     } catch (e) { toast(String((e as Error).message), true); setSalvando(false); }
   }
 
   const whats = aluno.telefone && r ? `https://wa.me/55${aluno.telefone.replace(/\D/g, '')}?text=${encodeURIComponent(textoWhats(aluno.nome, f, r, anterior, base?.config.nome_academia))}` : null;
+  // O PDF usa o que está na tela (inclusive alterações ainda não salvas).
+  const avaliacoesPdf = (): Avaliacao[] => {
+    if (!atual || !medidas) return lista;
+    const corrente: Avaliacao = {
+      ...atual, data: f.data, avaliador: f.avaliador || null, sexo: medidas.sexo, idade: medidas.idade, peso: medidas.peso, estatura: medidas.estatura,
+      protocolo: f.protocolo, alvo_gordura: n(f.alvo), dobras: medidas.dobras as Avaliacao['dobras'], perimetros: medidas.perimetros as Avaliacao['perimetros'],
+      pa_sistolica: n(f.pas), pa_diastolica: n(f.pad), fc_repouso: n(f.fc), laudo: f.laudo || null,
+    };
+    return lista.map((a) => (a.id === atual.id ? corrente : a));
+  };
+  const pdf = atual ? <BotaoPdf aluno={aluno} avaliacoes={avaliacoesPdf} avaliacaoId={atual.id} /> : null;
+  const modalExcluir = excluir && atual ? <ExcluirModal aluno={aluno} atual={atual} onFechar={() => setExcluir(false)} /> : null;
+
+  if (celular && !formCompleto) {
+    return (
+      <CapturaCelular aluno={aluno} f={f} setF={setF} r={r} anterior={anterior} ultima={atual ? anterior?.a ?? null : ultima} salva={!!atual}
+        salvando={salvando} onSalvar={salvar} onFormCompleto={() => setFormCompleto(true)} pdf={pdf} whats={whats}
+        recuperado={recuperado} onDescartar={descartarRascunho} onExcluir={atual ? () => setExcluir(true) : undefined} modalExcluir={modalExcluir} />
+    );
+  }
 
   return (
     <>
-      <div className="nao-imprime"><Link to={`/alunos/${aluno.id}`} style={{ fontWeight: 600 }}>← {aluno.nome}</Link></div>
+      <div><Link to={`/alunos/${aluno.id}`} style={{ fontWeight: 600 }}>← {aluno.nome}</Link></div>
       <Topo titulo={atual ? `Avaliação de ${dataBR(f.data)}` : 'Nova avaliação física'} sub={aluno.nome}>
-        {atual && <Botao onClick={() => window.print()}>Imprimir</Botao>}
-        {atual && whats && <a className="btn whats" href={whats} target="_blank" rel="noreferrer">Enviar pelo WhatsApp</a>}
+        {celular && <Botao onClick={() => setFormCompleto(false)}>Modo celular</Botao>}
+        {pdf}
+        {atual && whats && <a className="btn whats" href={whats} target="_blank" rel="noreferrer">Resumo no WhatsApp</a>}
         {atual && <Botao tipo="perigo" onClick={() => setExcluir(true)}>Excluir</Botao>}
       </Topo>
+
+      {recuperado && (
+        <div className="faixa info">
+          <span>Rascunho de {new Date(recuperado).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })} recuperado.</span>
+          <Botao pequeno onClick={descartarRascunho}>Descartar e começar de novo</Botao>
+        </div>
+      )}
 
       <div className="aval-layout">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
@@ -209,24 +273,26 @@ function Editor({ aluno, lista, atual }: { aluno: Aluno; lista: Avaliacao[]; atu
         </aside>
       </div>
 
-      {r && <Impressao aluno={aluno} f={f} r={r} anterior={anterior} academia={base?.config.nome_academia} />}
-
-      {excluir && atual && (
-        <Modal titulo="Excluir avaliação" onFechar={() => setExcluir(false)}>
-          <p style={{ margin: 0 }}>Excluir a avaliação de {dataBR(atual.data)} de {aluno.nome}? Não dá para desfazer.</p>
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-            <Botao onClick={() => setExcluir(false)}>Cancelar</Botao>
-            <Botao tipo="perigo" onClick={async () => {
-              try { await del(`/avaliacoes/${atual.id}`); toast('Avaliação excluída.'); nav(`/alunos/${aluno.id}`); } catch (e) { toast(String((e as Error).message), true); }
-            }}>Excluir</Botao>
-          </div>
-        </Modal>
-      )}
+      {modalExcluir}
     </>
   );
 }
 
-type Anterior = { a: Avaliacao; r: Resultado } | null;
+function ExcluirModal({ aluno, atual, onFechar }: { aluno: Aluno; atual: Avaliacao; onFechar: () => void }) {
+  const nav = useNavigate();
+  const { toast } = useApp();
+  return (
+    <Modal titulo="Excluir avaliação" onFechar={onFechar}>
+      <p style={{ margin: 0 }}>Excluir a avaliação de {dataBR(atual.data)} de {aluno.nome}? Não dá para desfazer.</p>
+      <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+        <Botao onClick={onFechar}>Cancelar</Botao>
+        <Botao tipo="perigo" onClick={async () => {
+          try { await del(`/avaliacoes/${atual.id}`); toast('Avaliação excluída.'); nav(`/alunos/${aluno.id}`); } catch (e) { toast(String((e as Error).message), true); }
+        }}>Excluir</Botao>
+      </div>
+    </Modal>
+  );
+}
 
 function L({ r, v, extra }: { r: ReactNode; v: ReactNode; extra?: ReactNode }) {
   return (
@@ -237,7 +303,7 @@ function L({ r, v, extra }: { r: ReactNode; v: ReactNode; extra?: ReactNode }) {
   );
 }
 
-function Resultados({ f, r, anterior }: { f: Form; r: Resultado | null; anterior: Anterior }) {
+export function Resultados({ f, r, anterior }: { f: Form; r: Resultado | null; anterior: Anterior }) {
   if (!r) return <><h2>Resultado</h2><p className="suave">Escolha o sexo para calcular.</p></>;
   const peso = n(f.peso);
   const ant = anterior?.r;
@@ -267,7 +333,7 @@ function Resultados({ f, r, anterior }: { f: Form; r: Resultado | null; anterior
 }
 
 // ---------- Textos ----------
-function gerarLaudo(nome: string, f: Form, r: Resultado, anterior: Anterior): string {
+export function gerarLaudo(nome: string, f: Form, r: Resultado, anterior: Anterior): string {
   const primeiro = nome.split(' ')[0];
   const partes: string[] = [];
   partes.push(`${primeiro} apresenta ${f1(r.gordura)}% de gordura corporal (${r.classes.gordura?.rotulo.toLowerCase()}), com ${f1(r.massaMagra)} kg de massa magra e ${f1(r.massaGorda)} kg de massa gorda.`);
@@ -293,49 +359,4 @@ function textoWhats(nome: string, f: Form, r: Resultado, anterior: Anterior, aca
   }
   if (academia) linhas.push('', academia);
   return linhas.join('\n');
-}
-
-// ---------- Versão para imprimir ----------
-function Impressao({ aluno, f, r, anterior, academia }: { aluno: Aluno; f: Form; r: Resultado; anterior: Anterior; academia?: string }) {
-  const perims = PERIMETROS.filter(([k]) => n(f.perimetros[k]) != null);
-  const linha = (rot: string, v: string, extra?: string) => <tr key={rot}><td>{rot}</td><td className="d num">{v}</td><td>{extra ?? ''}</td></tr>;
-  return (
-    <div className="impressao">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '2px solid #000', paddingBottom: 8, marginBottom: 12 }}>
-        <div><div style={{ fontSize: 20, fontWeight: 700 }}>Avaliação física</div><div>{academia}</div></div>
-        <div style={{ textAlign: 'right' }}><b>{aluno.nome}</b><div>{dataBR(f.data)} · {f.idade} anos · {f.sexo === 'M' ? 'masculino' : 'feminino'}</div>{f.avaliador && <div>Avaliado por {f.avaliador}</div>}</div>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-        <div>
-          <h3>Composição corporal</h3>
-          <table className="tbl"><tbody>
-            {linha('Peso', `${f1(n(f.peso))} kg`, anterior?.a.peso != null && n(f.peso) != null ? `antes ${f1(anterior.a.peso)}` : '')}
-            {linha('Estatura', `${f1(estaturaCm(n(f.estatura)), 0)} cm`)}
-            {linha('% de gordura', `${f1(r.gordura)}%`, r.classes.gordura?.rotulo)}
-            {linha('Massa gorda', `${f1(r.massaGorda)} kg`, anterior?.r.massaGorda != null ? `antes ${f1(anterior.r.massaGorda)}` : '')}
-            {linha('Massa magra', `${f1(r.massaMagra)} kg`, anterior?.r.massaMagra != null ? `antes ${f1(anterior.r.massaMagra)}` : '')}
-            {linha(`Peso máximo (${r.alvo}%)`, `${f1(r.pesoMaximo)} kg`)}
-            {linha('Objetivo de emagrecimento', r.objetivo == null ? '—' : `${f1(r.objetivo)} kg`)}
-            {linha('IMC', f1(r.imc), r.classes.imc?.rotulo)}
-            {r.rcq != null && linha('Relação cintura-quadril', f1(r.rcq, 2), r.classes.rcq?.rotulo)}
-            {r.classes.pressao && linha('Pressão arterial', `${f.pas}/${f.pad}`, r.classes.pressao.rotulo)}
-            {n(f.fc) != null && linha('FC de repouso', `${f.fc} bpm`)}
-          </tbody></table>
-          <div style={{ fontSize: 11, marginTop: 6 }}>Protocolo: {PROTOCOLOS[f.protocolo].nome} ({PROTOCOLOS[f.protocolo].fonte}); % de gordura por Siri.</div>
-        </div>
-        <div>
-          <h3>Dobras cutâneas (mm)</h3>
-          <table className="tbl"><tbody>
-            {DOBRAS.filter((d) => r.medias[d] != null).map((d) => linha(NOME_DOBRA[d], f1(r.medias[d])))}
-            {r.soma7 != null && linha('Soma das 7', f1(r.soma7))}
-          </tbody></table>
-          {perims.length > 0 && <>
-            <h3>Perímetros (cm)</h3>
-            <table className="tbl"><tbody>{perims.map(([k]) => linha(NOME_PERIMETRO[k], f1(n(f.perimetros[k]))))}</tbody></table>
-          </>}
-        </div>
-      </div>
-      {f.laudo && <><h3>Laudo</h3><p style={{ whiteSpace: 'pre-wrap' }}>{f.laudo}</p></>}
-    </div>
-  );
 }

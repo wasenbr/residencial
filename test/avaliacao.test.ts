@@ -47,7 +47,7 @@ test('Guedes 3 dobras (homem) e idade fora da faixa', () => {
 });
 
 test('média das medidas, medida dispersa, perímetros e pressão', () => {
-  const r = calcular(base({ dobras: { triceps: [10, 10.4, null], abdominal: [20, 24, 22] }, perimetros: { cintura: 96, quadril: 100 } }));
+  const r = calcular(base({ dobras: { triceps: [10, 10.4, null], abdominal: [20, 24], coxa: [20, 24, 22] }, perimetros: { cintura: 96, quadril: 100 } }));
   expect(r.medias.triceps).toBeCloseTo(10.2, 6);
   expect(r.dispersas).toEqual(['abdominal']);
   expect(r.rcq).toBeCloseTo(0.96, 6);
@@ -103,4 +103,36 @@ test('recusa avaliação sem sexo, sem data ou com medida absurda', async () => 
   expect((await chamar(`/alunos/${id}/avaliacoes`, 'POST', { ...ok, data: '01/10/2026' })).status).toBe(400);
   expect((await chamar(`/alunos/${id}/avaliacoes`, 'POST', { ...ok, dobras: { triceps: [500] } })).status).toBe(400);
   expect((await chamar(`/alunos/999999/avaliacoes`, 'POST', ok)).status).toBe(404);
+});
+
+test('gera o PDF do relatório com histórico', async () => {
+  const { gerarRelatorio } = await import('../src/pdf/relatorio');
+  const av = (id: number, data: string, peso: number, k: number, cintura: number) => ({
+    id, aluno_id: 1, data, avaliador: 'Prof. Teste', sexo: 'F' as const, idade: 34, peso, estatura: 164, protocolo: 'jp7' as const, alvo_gordura: null,
+    dobras: sete(k), perimetros: { cintura, abdomen: cintura + 8, quadril: 102 }, pa_sistolica: 118, pa_diastolica: 78, fc_repouso: 64,
+    laudo: 'Boa evolução. Manter o treino de força 3x por semana.', criado_em: '',
+  });
+  const aluno = { id: 1, nome: 'Ana Souza', sexo: 'F' } as never;
+  const { blob, nome } = gerarRelatorio({ aluno, academia: 'Estúdio Teste', avaliacoes: [av(2, '2026-07-15', 69, 21, 81), av(1, '2026-04-10', 71.2, 23, 84), av(3, '2026-10-20', 67.8, 19, 78)] });
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  expect(new TextDecoder().decode(bytes.slice(0, 5))).toBe('%PDF-');
+  expect(nome).toBe('Avaliacao-Ana-Souza-2026-10-20.pdf');
+  if (process.env.PDF_SAIDA) (await import('node:fs')).writeFileSync(process.env.PDF_SAIDA, bytes);
+});
+
+test('ditado: números falados ou em dígitos e comandos', async () => {
+  const { interpretarFala: f } = await import('../src/shared/fala');
+  const num = (t: string) => { const r = f(t); return r.tipo === 'numero' ? r.valor : r.tipo; };
+  expect(num('18,5')).toBe(18.5);
+  expect(num('18.5 mm')).toBe(18.5);
+  expect(num('18 vírgula 5')).toBe(18.5);
+  expect(num('dezoito vírgula cinco')).toBe(18.5);
+  expect(num('dezoito e meio')).toBe(18.5);
+  expect(num('vinte e três')).toBe(23);
+  expect(num('Noventa e dois centímetros')).toBe(92);
+  expect(num('cento e dois')).toBe(102);
+  expect(num('7')).toBe(7);
+  expect(num('Voltar')).toBe('voltar');
+  expect(num('próximo')).toBe('pular');
+  expect(num('bom dia')).toBe('nada');
 });

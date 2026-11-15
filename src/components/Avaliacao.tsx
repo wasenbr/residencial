@@ -1,21 +1,14 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { get } from '../api';
-import { calcular, PROTOCOLOS, REAVALIAR_DIAS, type Classe, type Medidas, type Resultado } from '../shared/avaliacao';
+import { calcular, diasEntre, f1, frase, medidasDe, PROTOCOLOS, REAVALIAR_DIAS, type Classe, type Resultado } from '../shared/avaliacao';
+export { f1, frase, medidasDe } from '../shared/avaliacao';
 import type { Aluno, Avaliacao } from '../shared/tipos';
-import { escala } from '../pages/Historico';
+import { escala } from '../shared/escala';
+import { useApp } from '../store';
 import { Botao, Carregando, dataBR, useDados } from '../ui';
 
 // ---------- Formatação ----------
-export const f1 = (n: number | null | undefined, casas = 1) =>
-  n == null ? '—' : n.toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas });
-
-export const medidasDe = (a: Avaliacao): Medidas => ({
-  sexo: a.sexo, idade: a.idade, peso: a.peso, estatura: a.estatura, protocolo: a.protocolo, alvo_gordura: a.alvo_gordura,
-  dobras: a.dobras, perimetros: a.perimetros, pa_sistolica: a.pa_sistolica, pa_diastolica: a.pa_diastolica,
-});
-
-export const diasEntre = (de: string, ate: string) => Math.round((Date.parse(ate) - Date.parse(de)) / 86400000);
 export function tempoDesde(dias: number): string {
   if (dias <= 0) return 'hoje';
   if (dias === 1) return 'ontem';
@@ -38,6 +31,38 @@ export function Delta({ atual, antes, bom, un, casas = 1 }: { atual: number | nu
   if (Math.abs(d) < Math.pow(10, -casas) / 2) return <span className="pequeno suave">sem mudança</span>;
   const cor = bom === 0 ? 'var(--suave)' : (d > 0) === (bom === 1) ? 'var(--marca-escura)' : 'var(--atraso)';
   return <span className="pequeno" style={{ color: cor, fontWeight: 600 }}>{d > 0 ? '▲ +' : '▼ −'}{f1(Math.abs(d), casas)}{un}</span>;
+}
+
+// ---------- PDF ----------
+/** Gera o relatório em PDF. No celular abre o menu de compartilhar (WhatsApp, e-mail…); no computador, baixa o arquivo. */
+export function BotaoPdf({ aluno, avaliacoes, avaliacaoId, rotulo = 'PDF para o aluno', pequeno, primario }: {
+  aluno: Aluno; avaliacoes: Avaliacao[] | (() => Avaliacao[]); avaliacaoId?: number; rotulo?: string; pequeno?: boolean; primario?: boolean;
+}) {
+  const { base, toast } = useApp();
+  const [gerando, setGerando] = useState(false);
+  async function gerar() {
+    setGerando(true);
+    try {
+      const { gerarRelatorio } = await import('../pdf/relatorio');
+      const lista = typeof avaliacoes === 'function' ? avaliacoes() : avaliacoes;
+      const { blob, nome } = gerarRelatorio({ aluno, avaliacoes: lista, avaliacaoId, academia: base?.config.nome_academia });
+      const arquivo = new File([blob], nome, { type: 'application/pdf' });
+      const toque = window.matchMedia?.('(pointer: coarse)').matches;
+      if (toque && navigator.canShare?.({ files: [arquivo] })) {
+        try { await navigator.share({ files: [arquivo], title: `Avaliação física · ${aluno.nome}` }); }
+        catch (e) { if ((e as Error).name !== 'AbortError') baixar(blob, nome); }
+      } else baixar(blob, nome);
+    } catch (e) { toast('Não consegui gerar o PDF: ' + (e as Error).message, true); }
+    setGerando(false);
+  }
+  return <Botao pequeno={pequeno} tipo={primario ? 'primario' : 'padrao'} onClick={gerar} desligado={gerando}>{gerando ? 'Gerando PDF…' : rotulo}</Botao>;
+}
+
+function baixar(blob: Blob, nome: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = nome; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 // ---------- Gráfico de evolução (eixo de tempo real: avaliações não são mensais) ----------
@@ -150,7 +175,10 @@ export function AvaliacaoSecao({ aluno }: { aluno: Aluno }) {
   const cab = (extra?: ReactNode) => (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
       <div><h2>Avaliação física</h2>{extra}</div>
-      <Botao pequeno tipo="primario" onClick={nova}>Nova avaliação</Botao>
+      <span style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {!!dados?.length && <BotaoPdf pequeno aluno={aluno} avaliacoes={dados} />}
+        <Botao pequeno tipo="primario" onClick={nova}>Nova avaliação</Botao>
+      </span>
     </div>
   );
   if (!dados) return <section className="cartao pad">{cab()}<Carregando erro={erro} /></section>;
@@ -226,9 +254,4 @@ export function AvaliacaoSecao({ aluno }: { aluno: Aluno }) {
       </table></div>
     </section>
   );
-}
-
-export function frase(d: number, oque: string): string {
-  if (Math.abs(d) < 0.05) return `manteve a ${oque.replace(/^de /, '')}`;
-  return `${d > 0 ? 'ganhou' : 'perdeu'} ${f1(Math.abs(d))} kg ${oque}`;
 }

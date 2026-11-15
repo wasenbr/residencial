@@ -6,6 +6,8 @@
 // % de gordura pela equação de Siri (1961): %G = 495 / DC − 450.
 // Peso máximo recomendável = massa magra / (1 − % de gordura alvo).
 
+import type { Avaliacao } from './tipos';
+
 export type Sexo = 'M' | 'F';
 export type Protocolo = 'jp7' | 'jp3' | 'guedes';
 
@@ -86,7 +88,7 @@ export interface Classe { rotulo: string; tom: Tom }
 
 export interface Resultado {
   medias: Partial<Record<Dobra, number>>;
-  /** Dobras com medidas muito diferentes entre si (vale refazer). */
+  /** Dobras com só 2 medidas e muito diferentes entre si (falta a 3ª). */
   dispersas: Dobra[];
   /** Dobras que o protocolo usa e ainda não foram medidas. */
   faltam: Dobra[];
@@ -129,7 +131,9 @@ export function calcular(m: Medidas): Resultado {
   for (const d of DOBRAS) {
     const media = mediaDobra(m.dobras[d]);
     if (media != null) medias[d] = media;
-    if (dispersa(m.dobras[d])) dispersas.push(d);
+    // Com 3 medidas o protocolo já foi cumprido (a 3ª existe justamente por causa da divergência).
+    const preenchidas = (m.dobras[d] ?? []).filter(positivo).length;
+    if (preenchidas === 2 && dispersa(m.dobras[d])) dispersas.push(d);
   }
   const usadas = p.dobras[m.sexo];
   const faltam = usadas.filter((d) => medias[d] == null);
@@ -223,4 +227,26 @@ export function idadeEm(nascimento: string | null | undefined, data: string): nu
 export function estaturaCm(v: number | null): number | null {
   if (!positivo(v)) return null;
   return v < 3 ? Math.round(v * 1000) / 10 : v;
+}
+
+// ---------- Formatação e textos (tela e PDF) ----------
+export const f1 = (n: number | null | undefined, casas = 1) =>
+  n == null ? '—' : n.toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas });
+
+export const medidasDe = (a: Avaliacao): Medidas => ({
+  sexo: a.sexo, idade: a.idade, peso: a.peso, estatura: a.estatura, protocolo: a.protocolo, alvo_gordura: a.alvo_gordura,
+  dobras: a.dobras, perimetros: a.perimetros, pa_sistolica: a.pa_sistolica, pa_diastolica: a.pa_diastolica,
+});
+
+export const diasEntre = (de: string, ate: string) => Math.round((Date.parse(ate) - Date.parse(de)) / 86400000);
+
+/** "perdeu 1,8 kg de gordura" / "ganhou 0,6 kg de massa magra" / "manteve a gordura". */
+export function frase(d: number, oque: string): string {
+  if (Math.abs(d) < 0.05) return `manteve a ${oque.replace(/^de /, '')}`;
+  return `${d > 0 ? 'ganhou' : 'perdeu'} ${f1(Math.abs(d))} kg ${oque}`;
+}
+
+/** Diferença maior que 5% entre duas medidas (e de pelo menos 1 mm): pede uma 3ª medida. */
+export function precisaTerceira(a: number | null, b: number | null): boolean {
+  return dispersa([a, b]);
 }

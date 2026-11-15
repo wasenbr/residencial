@@ -112,16 +112,41 @@ button.modalidade-link:focus-visible { outline: 2px solid var(--marca); outline-
 .aval-perim { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px 16px; }
 .aval-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
 .aval-kpi { border: 1px solid var(--borda); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
-.impressao { display: none; }
-/* Só as páginas que têm versão para imprimir trocam a tela por ela. */
-@media print {
-  body:has(.impressao) :is(.menu, .abas, .toast, .conteudo > :not(.impressao)) { display: none !important; }
-  body:has(.impressao), body:has(.impressao) .app { background: #fff; display: block; }
-  body:has(.impressao) .conteudo { padding: 0; }
-  .impressao { display: block; color: #000; font-size: 13px; }
-  .impressao h3 { font-size: 14px; margin: 12px 0 4px; }
-  .impressao .tbl td { padding: 4px 6px; }
-}
+/* Captura no celular: sem a barra de abas, a tela é do coletor */
+body.captura .abas { display: none; }
+body.captura .conteudo { padding-bottom: 24px; }
+.cap { display: flex; flex-direction: column; gap: 14px; }
+.cap-card { background: var(--cartao); border: 1px solid var(--borda); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.cap-passos { display: flex; gap: 4px; }
+.cap-passos button { flex: 1; min-width: 0; border: 0; border-top: 4px solid var(--linha); background: none; padding: 8px 0 4px; font-size: 12px; font-weight: 600; color: var(--suave); cursor: pointer; }
+.cap-passos button.feito { border-top-color: #9FC9BC; }
+.cap-passos button.ativo { border-top-color: var(--marca); color: var(--marca-escura); }
+.cap-opcoes { display: flex; flex-wrap: wrap; gap: 8px; }
+.cap-opcoes .ficha { flex: 1; min-height: 44px; }
+.cap-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.campo input.cap-grande { min-height: 52px; font-size: 20px; font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+.cap-avancar { min-height: 56px; font-size: 16px; width: 100%; }
+.cap-acoes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 10px; }
+.cap-acoes .btn { min-height: 56px; font-size: 16px; }
+.cap-pdf .btn { width: 100%; min-height: 56px; font-size: 16px; background: var(--marca); border-color: var(--marca); color: #fff; }
+.cap-valor { text-align: center; font-size: 52px; font-weight: 600; line-height: 1.1; padding: 6px 0 2px; color: var(--texto); }
+.cap-valor.vazio { color: var(--borda-forte); }
+.cap-valor span { font-size: 18px; color: var(--suave); margin-left: 6px; }
+.teclado { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; user-select: none; -webkit-user-select: none; }
+.teclado button { min-height: 58px; font-size: 26px; font-weight: 600; border-radius: 12px; border: 1px solid var(--borda-forte); background: #fff; color: var(--texto); cursor: pointer; touch-action: manipulation; font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+.teclado button:active { background: var(--marca-clara); border-color: var(--marca); }
+.cap-mic { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--borda-forte); background: #fff; font-weight: 600; font-size: 13px; color: var(--texto); cursor: pointer; flex: none; }
+.cap-mic.ligado { background: var(--atraso-fundo); border-color: var(--atraso-borda); color: var(--atraso); }
+.cap-tabela th, .cap-tabela td { padding: 6px 6px !important; font-size: 13px; }
+.cap-celula { min-width: 48px; min-height: 36px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--linha); background: #fff; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 14px; color: var(--texto); cursor: pointer; }
+.cap-celula.sel { border-color: var(--marca); background: var(--marca-clara); font-weight: 700; }
+.cap-destaque { background: var(--marca); border-color: var(--marca); color: #fff; gap: 8px; }
+.cap-destaque .pequeno[style] { color: inherit; }
+.cap-mini { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 6px; }
+.cap-mini > div { background: rgba(255,255,255,.12); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.cap-mini b { font-size: 16px; }
+.cap-destaque .pilula { background: #fff; }
+.cap-destaque .pequeno { color: #fff !important; }
 
 /* Celular */
 @media (max-width: 1100px) {

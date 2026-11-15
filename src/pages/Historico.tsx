@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { get } from '../api';
 import { nomeComp } from '../shared/comp';
 import { useApp } from '../store';
+import { escala } from '../shared/escala';
 import { Carregando, Num, Topo, brl, useDados } from '../ui';
 
 interface Mes {
@@ -20,17 +21,6 @@ const pct = (n: number) => `${n.toLocaleString('pt-BR', { maximumFractionDigits:
 interface Serie { nome: string; cor: string; valores: (number | null)[]; tracejada?: boolean }
 
 const L = 48, R = 12, T = 12, B = 28;
-
-export function escala(max: number, min: number) {
-  const span = max - min || 1;
-  const passo = Math.pow(10, Math.floor(Math.log10(span / 4)));
-  const bases = [1, 2, 2.5, 5, 10].map((b) => b * passo);
-  const p = bases.find((b) => span / b <= 5) ?? passo * 10;
-  const lo = Math.floor(min / p) * p, hi = Math.ceil(max / p) * p;
-  const ticks: number[] = [];
-  for (let v = lo; v <= hi + p / 2; v += p) ticks.push(Math.round(v * 100) / 100);
-  return { lo, hi: hi === lo ? lo + p : hi, ticks };
-}
 
 /** Eixo, grade leve e dica ao passar o mouse, comuns aos dois gráficos. */
 function Quadro({ meses, series, fmt, tipo, minZero = true, H = 240 }: {
