@@ -4,7 +4,7 @@ import { del, get, post, put } from '../api';
 import { nomeComp, diffMeses, rotuloMeses, somarMeses } from '../shared/comp';
 import type { Aluno, Contrato, Turma } from '../shared/tipos';
 import { useApp } from '../store';
-import { Botao, Campo, Carregando, FORMA_ROTULO, Modal, Num, Pilula, Topo, useDados } from '../ui';
+import { Botao, Campo, Carregando, FORMA_ROTULO, Modal, Num, Pilula, Topo, dinheiro, useDados } from '../ui';
 import { PagarModal, type Devendo } from '../components/Pagar';
 import { AdiantadoModal, TrocarPlanoModal } from '../components/Adiantado';
 import { AlterarValorModal, DividirModal, type MensalidadeEditavel } from '../components/Cobranca';
@@ -15,6 +15,7 @@ interface Ficha {
   contratos: Contrato[];
   mensalidades: { id: number; contrato_id: number | null; competencia: string; modalidade: string | null; descricao: string | null; valor: number; pago: number; formas: string | null; vencimento: string | null; cancelada: number; adiantado: number }[];
   familia: { id: number; nome: string }[];
+  divisao: { a_partir: string; partes: { modalidade_id: number; valor: number }[] } | null;
 }
 
 export function AlunoFicha() {
@@ -32,13 +33,21 @@ export function AlunoFicha() {
   const [trocarPlano, setTrocarPlano] = useState(false);
   const [dividir, setDividir] = useState(false);
   if (!dados) return <Carregando erro={erro} />;
-  const { aluno, turmas, contratos, mensalidades, familia } = dados;
+  const { aluno, turmas, contratos, mensalidades, familia, divisao } = dados;
   const contrato = contratos.find((c) => !c.encerrado_em) ?? null;
   const mesDoContrato = contrato?.meses ? diffMeses(contrato.inicio, comp) + 1 : null;
   const fechados = base?.fechados ?? [];
   const doMes = mensalidades.filter((m) => m.competencia === comp && !m.cancelada);
   const devidoMes = doMes.reduce((s, m) => s + m.valor, 0);
   const pagoMes = doMes.reduce((s, m) => s + m.pago, 0);
+  // Mês já pago: a divisão por modalidade vale a partir do mês seguinte.
+  const proxComp = somarMeses(comp, 1);
+  const doProx = mensalidades.filter((m) => m.competencia === proxComp && !m.cancelada);
+  const dividirEm = doMes.length !== 1 || aluno.origem !== 'particular' ? null
+    : doMes[0].pago === 0 ? { competencia: comp, total: doMes[0].valor, aPartir: false }
+    : doProx.length === 0 && !divisao ? { competencia: proxComp, total: doMes[0].valor, aPartir: true }
+    : doProx.length === 1 && doProx[0].pago === 0 ? { competencia: proxComp, total: doProx[0].valor, aPartir: true }
+    : null;
   const aulas = turmas.reduce((s, t) => s + t.aulas_semana, 0);
   const ativas = mensalidades.filter((m) => !m.cancelada);
   const quitada = (c: string) => { const ms = ativas.filter((m) => m.competencia === c); return ms.length > 0 && ms.every((m) => m.valor - m.pago <= 0.009); };
@@ -74,10 +83,16 @@ export function AlunoFicha() {
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '8px 0 12px' }}>
             <Botao pequeno tipo="primario" onClick={() => setTrocarPlano(true)}>Trocar plano</Botao>
             {doMes.length === 1 && <Botao pequeno onClick={() => setAlterar(editavel(doMes[0]))}>Alterar valor</Botao>}
-            {doMes.length === 1 && aluno.origem === 'particular' && doMes[0].pago === 0 && <Botao pequeno onClick={() => setDividir(true)}>Dividir por modalidade</Botao>}
+            {dividirEm && <Botao pequeno onClick={() => setDividir(true)}>{dividirEm.aPartir ? `Dividir por modalidade a partir de ${nomeComp(dividirEm.competencia, true).toLowerCase()}` : 'Dividir por modalidade'}</Botao>}
             {doMes.length > 1 && <span className="pequeno suave">Para alterar, use “Alterar” em cada linha de Pagamentos.</span>}
             {doMes.length === 0 && aluno.origem === 'particular' && <Botao pequeno onClick={() => setLancar(true)}>Lançar mensalidade de {nomeComp(comp, true).toLowerCase()}</Botao>}
           </div>
+          {divisao && (
+            <div className="pequeno" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+              <span>A partir de {nomeComp(divisao.a_partir, true).toLowerCase()}: {divisao.partes.map((p) => `${base?.modalidades.find((m) => m.id === p.modalidade_id)?.nome ?? '?'} ${dinheiro(p.valor)}`).join(' + ')}</span>
+              <Botao pequeno onClick={() => acao(() => del(`/alunos/${aluno.id}/divisao`), 'Divisão cancelada.')}>Cancelar divisão</Botao>
+            </div>
+          )}
           {contrato ? (
             <>
               <Linha r="Plano" v={`${contrato.plano} · ${rotuloMeses(contrato.meses)}`} />
@@ -154,8 +169,8 @@ export function AlunoFicha() {
         <TrocarPlanoModal aluno={aluno} aulasSemana={aulas} valorAtual={valorRecente} contratoAtual={contrato} inicioSugerido={comp}
           onFechar={() => setTrocarPlano(false)} onSalvo={() => { setTrocarPlano(false); atualizar(); void recarregar(); }} />
       )}
-      {dividir && doMes.length === 1 && (
-        <DividirModal alunoId={aluno.id} nome={aluno.nome} competencia={comp} total={doMes[0].valor} modalidadeIds={[...new Set(turmas.map((t) => t.modalidade_id))]}
+      {dividir && dividirEm && (
+        <DividirModal alunoId={aluno.id} nome={aluno.nome} competencia={dividirEm.competencia} total={dividirEm.total} aPartir={dividirEm.aPartir} modalidadeIds={[...new Set(turmas.map((t) => t.modalidade_id))]}
           onFechar={() => setDividir(false)} onSalvo={() => { setDividir(false); atualizar(); }} />
       )}
       {alterar && <AlterarValorModal item={alterar} onFechar={() => setAlterar(null)} onSalvo={() => { setAlterar(null); atualizar(); }} />}

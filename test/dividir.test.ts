@@ -66,3 +66,32 @@ test('cadastro de aluno novo com valor dividido cria uma mensalidade por modalid
   const { id } = await r.json() as { id: number };
   expect((await mensDe(id)).map((m) => [m.modalidade_id, m.valor])).toEqual([[zumba.id, 70], [funcional.id, 80]]);
 });
+
+test('mês atual já pago: divide a partir do mês seguinte, ainda não gerado', async () => {
+  const [zumba, funcional] = await mods();
+  const edu = await aluno('Edu');
+  const m = await mensalidade(edu, '2027-09', 150, zumba.id);
+  await chamar('/pagamentos', { mensalidade_id: m, valor: 150, forma: 'dinheiro', data: '2027-09-05' });
+  const partes = [{ modalidade_id: zumba.id, valor: 70 }, { modalidade_id: funcional.id, valor: 90 }];
+
+  const r = await chamar(`/alunos/${edu}/dividir`, { competencia: '2027-10', partes });
+  expect(r.status).toBe(200);
+  expect(await r.json()).toMatchObject({ pendente: true, total: 160 });
+  const ficha = await (await app.request(`/api/alunos/${edu}`, {}, { DB: ctx.db })).json() as { divisao: { a_partir: string } | null };
+  expect(ficha.divisao?.a_partir).toBe('2027-10');
+
+  await chamar('/mes/gerar', { competencia: '2027-10' });
+  await chamar('/mes/gerar', { competencia: '2027-11' });
+  expect(await mensDe(edu)).toEqual([
+    { competencia: '2027-09', modalidade_id: zumba.id, valor: 150 },
+    { competencia: '2027-10', modalidade_id: zumba.id, valor: 70 }, { competencia: '2027-10', modalidade_id: funcional.id, valor: 90 },
+    { competencia: '2027-11', modalidade_id: zumba.id, valor: 70 }, { competencia: '2027-11', modalidade_id: funcional.id, valor: 90 },
+  ]);
+  expect((await ctx.db.prepare('SELECT COUNT(*) AS n FROM divisoes_pendentes').first<{ n: number }>())?.n).toBe(0);
+});
+
+test('mês seguinte já gerado sem o aluno não vira divisão pendente', async () => {
+  const [zumba, funcional] = await mods();
+  const fe = await aluno('Fe');
+  expect((await chamar(`/alunos/${fe}/dividir`, { competencia: '2027-10', partes: [{ modalidade_id: zumba.id, valor: 70 }, { modalidade_id: funcional.id, valor: 80 }] })).status).toBe(409);
+});

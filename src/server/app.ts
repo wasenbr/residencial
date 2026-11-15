@@ -249,7 +249,13 @@ export function criarApp() {
                   WHERE m.aluno_id = ? ORDER BY m.competencia DESC, m.id`).bind(id).all(),
       aluno.familia ? db.prepare('SELECT id, nome FROM alunos WHERE familia = ? AND id != ?').bind(aluno.familia, id).all() : Promise.resolve({ results: [] }),
     ]);
-    return c.json({ aluno, turmas: turmas.results, contratos: contratos.results, mensalidades: mens.results, familia: familia.results });
+    const pend = await db.prepare('SELECT a_partir, partes FROM divisoes_pendentes WHERE aluno_id = ?').bind(id).first<{ a_partir: string; partes: string }>();
+    const divisao = pend ? { a_partir: pend.a_partir, partes: JSON.parse(pend.partes) as { modalidade_id: number; valor: number }[] } : null;
+    return c.json({ aluno, turmas: turmas.results, contratos: contratos.results, mensalidades: mens.results, familia: familia.results, divisao });
+  });
+  app.delete('/alunos/:id/divisao', async (c) => {
+    await c.env.DB.prepare('DELETE FROM divisoes_pendentes WHERE aluno_id = ?').bind(Number(c.req.param('id'))).run();
+    return c.json({ ok: true });
   });
 
   app.post('/alunos', async (c) => {
@@ -438,6 +444,18 @@ export function criarApp() {
       FROM mensalidades m WHERE m.aluno_id = ? AND m.cancelada = 0 AND m.competencia >= ? ORDER BY m.competencia, m.id`).bind(id, b.competencia).all()).results as unknown as
       (Mensalidade & { pago: number })[];
     const doMes = mens.filter((m) => m.competencia === b.competencia);
+    const total = r2(partes.reduce((s, p) => s + p.valor, 0));
+    if (doMes.length === 0) {
+      // Mês ainda não gerado (ex.: o mês atual já foi pago e a divisão vale do seguinte):
+      // guarda a divisão e o "Gerar mês" cria uma mensalidade por modalidade.
+      const gerado = await db.prepare('SELECT 1 FROM mensalidades WHERE competencia = ? AND adiantado = 0 LIMIT 1').bind(b.competencia).first();
+      const ant = await db.prepare('SELECT COUNT(*) AS n FROM mensalidades WHERE aluno_id = ? AND competencia = ? AND cancelada = 0')
+        .bind(id, somarMeses(b.competencia, -1)).first<{ n: number }>();
+      if (!gerado && ant?.n === 1) {
+        await db.prepare('INSERT OR REPLACE INTO divisoes_pendentes (aluno_id, a_partir, partes) VALUES (?,?,?)').bind(id, b.competencia, JSON.stringify(partes)).run();
+        return c.json({ meses: 0, total, pendente: true });
+      }
+    }
     if (doMes.length !== 1) throw new Erro(409, doMes.length === 0 ? 'O aluno não tem mensalidade nesse mês.' : 'Esse mês já tem mais de uma mensalidade. Use “Alterar” em cada linha.');
     const alvo = doMes[0];
     if (alvo.pago > 0) throw new Erro(409, 'Esse mês já tem pagamento registrado. Divida a partir do mês seguinte.');
@@ -461,7 +479,7 @@ export function criarApp() {
           .bind(id, m.contrato_id, m.competencia, p.modalidade_id, m.descricao, p.valor, m.vencimento, m.adiantado));
       }
     }
-    const total = r2(partes.reduce((s, p) => s + p.valor, 0));
+    stmts.push(db.prepare('DELETE FROM divisoes_pendentes WHERE aluno_id = ?').bind(id));
     if (b.propagar && alvo.contrato_id != null) stmts.push(db.prepare('UPDATE contratos SET valor_mensal = ? WHERE id = ?').bind(total, alvo.contrato_id));
     await db.batch(stmts);
     return c.json({ meses: alvos.length, total });
@@ -800,9 +818,14 @@ export function criarApp() {
     const contratos = new Map((await db.prepare('SELECT * FROM contratos').all()).results.map((x) => [(x as unknown as Contrato).id, x as unknown as Contrato]));
     const vigente = (ct: Contrato) => !ct.encerrado_em && (ct.meses == null || diffMeses(ct.inicio, competencia) < ct.meses);
     const novas: D1PreparedStatement[] = [];
+    // Divisões por modalidade marcadas para começar neste mês (ou antes, se algum mês foi pulado).
+    const divisoes = new Map(((await db.prepare('SELECT aluno_id, partes FROM divisoes_pendentes WHERE a_partir <= ?').bind(competencia).all()).results as
+      { aluno_id: number; partes: string }[]).map((x) => [x.aluno_id, JSON.parse(x.partes) as { modalidade_id: number; valor: number }[]]));
+    const divididos = new Set<number>();
     let contratosFinalizados = 0;
     for (const m of anteriores) {
       if (jaLancadas.has(`${m.aluno_id}|${m.modalidade_id ?? ''}`)) { adiantados++; continue; }
+      if (divididos.has(m.aluno_id)) continue;
       let contratoId = m.contrato_id;
       if (contratoId != null) {
         const atual = contratos.get(contratoId);
@@ -817,10 +840,21 @@ export function criarApp() {
         }
         contratoId = ct.id;
       }
+      const partes = divisoes.get(m.aluno_id);
+      if (partes) {
+        divididos.add(m.aluno_id);
+        for (const p of partes) {
+          novas.push(db.prepare('INSERT INTO mensalidades (aluno_id, contrato_id, competencia, modalidade_id, descricao, valor, vencimento) VALUES (?,?,?,?,?,?,?)')
+            .bind(m.aluno_id, contratoId, competencia, p.modalidade_id, m.descricao, p.valor, venc));
+        }
+        if (contratoId != null) novas.push(db.prepare('UPDATE contratos SET valor_mensal = ? WHERE id = ?').bind(r2(partes.reduce((s, p) => s + p.valor, 0)), contratoId));
+        continue;
+      }
       novas.push(db.prepare('INSERT INTO mensalidades (aluno_id, contrato_id, competencia, modalidade_id, descricao, valor, vencimento) VALUES (?,?,?,?,?,?,?)')
         .bind(m.aluno_id, contratoId, competencia, m.modalidade_id, m.descricao, m.valor, venc));
     }
     for (let i = 0; i < novas.length; i += 50) await db.batch(novas.slice(i, i + 50));
+    await db.prepare('DELETE FROM divisoes_pendentes WHERE a_partir <= ?').bind(competencia).run();
     const f = await db.prepare(`
       INSERT INTO despesas (competencia, descricao, categoria, tipo, valor, vencimento, despesa_fixa_id)
       SELECT ?, f.descricao, f.categoria, 'fixa', COALESCE(f.valor, 0),
