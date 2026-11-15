@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type {
-  Aluno, Config, Contrato, DespesaFixa, Matricula, Mensalidade, Pagamento, Plano, Professor, Turma,
+  Aluno, Avaliacao, Config, Contrato, DespesaFixa, Matricula, Mensalidade, Pagamento, Plano, Professor, Turma,
 } from '../shared/tipos';
 import { FORMAS } from '../shared/tipos';
 import { compAtual, diffMeses, dividirValor, periodoDeMeses, somarMeses, validaComp } from '../shared/comp';
@@ -9,6 +9,7 @@ import { importar } from '../import/importar';
 import { chaveNome } from '../shared/nomes';
 import { MSG_COBRANCA_PADRAO } from '../shared/cobranca';
 import { rateio } from '../shared/resumo';
+import { DOBRAS, NOME_DOBRA, PERIMETROS } from '../shared/avaliacao';
 
 type Env = { Bindings: { DB: D1Database } };
 
@@ -82,7 +83,44 @@ export async function resumoDoMes(db: D1Database, comp: string) {
   return calcularResumo(dados);
 }
 
-function compDe(c: { req: { query: (k: string) => string | undefined } }): string {
+const COLS_AVALIACAO = ['data', 'avaliador', 'sexo', 'idade', 'peso', 'estatura', 'protocolo', 'alvo_gordura', 'dobras', 'perimetros', 'pa_sistolica', 'pa_diastolica', 'fc_repouso', 'laudo'] as const;
+
+/** Confere a avaliação enviada e devolve os valores prontos para o banco. */
+function validarAvaliacao(b: Partial<Avaliacao>): Record<(typeof COLS_AVALIACAO)[number], string | number | null> {
+  const num = (v: unknown, min: number, max: number, nome: string): number | null => {
+    if (v == null || v === '') return null;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < min || n > max) throw new Erro(400, `${nome} fora do esperado (${min} a ${max}).`);
+    return n;
+  };
+  if (!validaData(b.data)) throw new Erro(400, 'Informe a data da avaliação.');
+  if (b.sexo !== 'M' && b.sexo !== 'F') throw new Erro(400, 'Informe o sexo: as equações são diferentes para homens e mulheres.');
+  const idade = num(b.idade, 5, 110, 'Idade');
+  if (idade == null) throw new Erro(400, 'Informe a idade.');
+  if (!['jp7', 'jp3', 'guedes'].includes(b.protocolo ?? '')) throw new Erro(400, 'Protocolo inválido.');
+  const dobras: Record<string, (number | null)[]> = {};
+  for (const d of DOBRAS) {
+    const v = (b.dobras ?? {})[d];
+    if (!Array.isArray(v)) continue;
+    const lista = v.slice(0, 3).map((x) => num(x, 0, 100, `Dobra ${NOME_DOBRA[d]}`));
+    if (lista.some((x) => x != null)) dobras[d] = lista;
+  }
+  const perimetros: Record<string, number> = {};
+  for (const [k, nome] of PERIMETROS) {
+    const v = num((b.perimetros ?? {})[k], 0, 300, `Perímetro ${nome}`);
+    if (v) perimetros[k] = v;
+  }
+  return {
+    data: b.data, avaliador: b.avaliador?.trim() || null, sexo: b.sexo, idade: Math.round(idade),
+    peso: num(b.peso, 0, 400, 'Peso') || null, estatura: num(b.estatura, 0, 250, 'Estatura (cm)') || null,
+    protocolo: b.protocolo!, alvo_gordura: num(b.alvo_gordura, 3, 50, '% de gordura alvo'),
+    dobras: JSON.stringify(dobras), perimetros: JSON.stringify(perimetros),
+    pa_sistolica: num(b.pa_sistolica, 50, 300, 'Pressão sistólica'), pa_diastolica: num(b.pa_diastolica, 30, 200, 'Pressão diastólica'),
+    fc_repouso: num(b.fc_repouso, 20, 250, 'Frequência cardíaca'), laudo: b.laudo?.trim() || null,
+  };
+}
+
+function compDe(c:{ req: { query: (k: string) => string | undefined } }): string {
   const q = c.req.query('comp');
   if (q && !validaComp(q)) throw new Erro(400, 'Competência inválida (use AAAA-MM).');
   return q ?? compAtual();
@@ -305,7 +343,8 @@ export function criarApp() {
     const db = c.env.DB;
     const id = Number(c.req.param('id'));
     const b = await c.req.json<Partial<Aluno>>();
-    const campos = ['nome', 'telefone', 'nascimento', 'responsavel', 'responsavel_tel', 'familia', 'origem', 'ativo', 'observacoes', 'recorrente'] as const;
+    const campos = ['nome', 'telefone', 'nascimento', 'responsavel', 'responsavel_tel', 'familia', 'origem', 'ativo', 'observacoes', 'recorrente', 'sexo'] as const;
+    if ('sexo' in b && b.sexo != null && b.sexo !== 'M' && b.sexo !== 'F') throw new Erro(400, 'Sexo inválido.');
     const sets: string[] = [], vals: unknown[] = [];
     for (const k of campos) if (k in b) { sets.push(`${k} = ?`); vals.push(b[k] ?? null); }
     if (b.nome) { sets.push('chave = ?'); vals.push(chaveNome(b.nome)); }
@@ -1014,6 +1053,42 @@ export function criarApp() {
   app.put('/planos/:id', async (c) => {
     const b = await c.req.json<Partial<Plano>>();
     await c.env.DB.prepare('UPDATE planos SET valor = COALESCE(?, valor), ativo = COALESCE(?, ativo) WHERE id = ?').bind(b.valor ?? null, b.ativo ?? null, Number(c.req.param('id'))).run();
+    return c.json({ ok: true });
+  });
+
+  // ---------- Avaliação física ----------
+  const lerAvaliacao = (r: Record<string, unknown>) => ({ ...r, dobras: JSON.parse(String(r.dobras || '{}')), perimetros: JSON.parse(String(r.perimetros || '{}')) }) as unknown as Avaliacao;
+
+  app.get('/alunos/:id/avaliacoes', async (c) => {
+    const r = await c.env.DB.prepare('SELECT * FROM avaliacoes WHERE aluno_id = ? ORDER BY data, id').bind(Number(c.req.param('id'))).all();
+    return c.json((r.results as Record<string, unknown>[]).map(lerAvaliacao));
+  });
+  app.get('/avaliacoes/:id', async (c) => {
+    const r = await c.env.DB.prepare('SELECT * FROM avaliacoes WHERE id = ?').bind(Number(c.req.param('id'))).first<Record<string, unknown>>();
+    if (!r) throw new Erro(404, 'Avaliação não encontrada.');
+    return c.json(lerAvaliacao(r));
+  });
+  app.post('/alunos/:id/avaliacoes', async (c) => {
+    const db = c.env.DB;
+    const alunoId = Number(c.req.param('id'));
+    const aluno = await db.prepare('SELECT id, sexo FROM alunos WHERE id = ?').bind(alunoId).first<{ id: number; sexo: string | null }>();
+    if (!aluno) throw new Erro(404, 'Aluno não encontrado.');
+    const a = validarAvaliacao(await c.req.json());
+    const r = await db.prepare(`INSERT INTO avaliacoes (aluno_id, ${COLS_AVALIACAO.join(', ')}) VALUES (?, ${COLS_AVALIACAO.map(() => '?').join(', ')})`)
+      .bind(alunoId, ...COLS_AVALIACAO.map((k) => a[k])).run();
+    // Primeiro registro do sexo do aluno vem da avaliação.
+    if (!aluno.sexo) await db.prepare('UPDATE alunos SET sexo = ? WHERE id = ?').bind(a.sexo, alunoId).run();
+    return c.json({ id: r.meta.last_row_id }, 201);
+  });
+  app.put('/avaliacoes/:id', async (c) => {
+    const a = validarAvaliacao(await c.req.json());
+    const r = await c.env.DB.prepare(`UPDATE avaliacoes SET ${COLS_AVALIACAO.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`)
+      .bind(...COLS_AVALIACAO.map((k) => a[k]), Number(c.req.param('id'))).run();
+    if (!r.meta.changes) throw new Erro(404, 'Avaliação não encontrada.');
+    return c.json({ ok: true });
+  });
+  app.delete('/avaliacoes/:id', async (c) => {
+    await c.env.DB.prepare('DELETE FROM avaliacoes WHERE id = ?').bind(Number(c.req.param('id'))).run();
     return c.json({ ok: true });
   });
 

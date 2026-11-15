@@ -5,6 +5,7 @@ import { Dashboard, Painel } from './pages/Dashboard';
 import { Historico } from './pages/Historico';
 import { Alunos } from './pages/Alunos';
 import { AlunoFicha } from './pages/AlunoFicha';
+import { AvaliacaoForm } from './pages/AvaliacaoForm';
 import { Turmas } from './pages/Turmas';
 import { Mensalidades } from './pages/Mensalidades';
 import { Receber } from './pages/Receber';
@@ -34,6 +35,7 @@ function Casca() {
           <Route path="/historico" element={<Historico />} />
           <Route path="/alunos" element={<Alunos />} />
           <Route path="/alunos/:id" element={<AlunoFicha />} />
+          <Route path="/alunos/:id/avaliacoes/:aid" element={<AvaliacaoForm />} />
           <Route path="/turmas" element={<Turmas />} />
           <Route path="/mensalidades" element={<Mensalidades />} />
           <Route path="/receber" element={<Receber />} />

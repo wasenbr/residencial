@@ -43,7 +43,7 @@ export interface Aluno {
   id: number; nome: string; chave: string | null; telefone: string | null; nascimento: string | null;
   responsavel: string | null; responsavel_tel: string | null; familia: string | null;
   origem: 'particular' | 'gympass'; ativo: number; recorrente: number; observacoes: string | null; criado_em: string;
-  forma_pagamento: Forma | null;
+  forma_pagamento: Forma | null; sexo: 'M' | 'F' | null;
 }
 
 export interface Matricula { id: number; aluno_id: number; turma_id: number; inicio: string | null }
@@ -74,3 +74,10 @@ export interface DespesaFixa {
 }
 
 export interface GympassRepasse { competencia: string; real: number; recebido_em: string | null; justificativa: string | null }
+
+export interface Avaliacao {
+  id: number; aluno_id: number; data: string; avaliador: string | null; sexo: 'M' | 'F'; idade: number;
+  peso: number | null; estatura: number | null; protocolo: 'jp7' | 'jp3' | 'guedes'; alvo_gordura: number | null;
+  dobras: Record<string, (number | null)[]>; perimetros: Record<string, number | null>;
+  pa_sistolica: number | null; pa_diastolica: number | null; fc_repouso: number | null; laudo: string | null; criado_em: string;
+}

@@ -21,7 +21,7 @@ interface Serie { nome: string; cor: string; valores: (number | null)[]; traceja
 
 const L = 48, R = 12, T = 12, B = 28;
 
-function escala(max: number, min: number) {
+export function escala(max: number, min: number) {
   const span = max - min || 1;
   const passo = Math.pow(10, Math.floor(Math.log10(span / 4)));
   const bases = [1, 2, 2.5, 5, 10].map((b) => b * passo);

@@ -13,6 +13,7 @@ Sistema que substitui a planilha “Fechamento <mês>”: alunos, turmas, mensal
 - **Contratos** de qualquer duração (trimestral, semestral, anual, 13 meses…), com aviso de renovação.
 - **Trocar plano de aluno existente:** na ficha, “Trocar plano” muda de particular para Gympass (ou o contrário), o valor, a forma de pagamento habitual (que já vem marcada ao receber) e o contrato, a partir do mês escolhido.
 - **Pagamento adiantado:** na ficha do aluno, “Pagar adiantado” lança vários meses de uma vez. Cada mês fatura a sua parte (total ÷ meses), o caixa recebe tudo no mês do pagamento e gerar o mês não duplica quem já pagou.
+- **Avaliação física:** na ficha do aluno, lança peso, estatura, dobras cutâneas (até 3 medidas por ponto), perímetros e pressão. Calcula % de gordura (Pollock 7 ou 3 dobras, Guedes; Siri), massa magra e gorda, peso máximo recomendável, IMC, cintura-quadril e cintura-estatura, com classificação. Guarda o histórico, mostra a evolução em gráfico, sugere o laudo, imprime e envia o resumo pelo WhatsApp.
 - **Celular:** início, receber pagamento, novo aluno e lançar despesa.
 - **Importa as planilhas antigas**, mês a mês, e mostra uma conferência com a aba Fechamento de cada uma.
 

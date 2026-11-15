@@ -4,9 +4,10 @@ import { del, get, post, put } from '../api';
 import { nomeComp, diffMeses, rotuloMeses, somarMeses } from '../shared/comp';
 import type { Aluno, Contrato, Turma } from '../shared/tipos';
 import { useApp } from '../store';
-import { Botao, Campo, Carregando, FORMA_ROTULO, Modal, Num, Pilula, Topo, dinheiro, useDados } from '../ui';
+import { Botao, Campo, Carregando, dataBR, FORMA_ROTULO, Modal, Num, Pilula, Topo, dinheiro, useDados } from '../ui';
 import { PagarModal, type Devendo } from '../components/Pagar';
 import { AdiantadoModal, TrocarPlanoModal } from '../components/Adiantado';
+import { AvaliacaoSecao } from '../components/Avaliacao';
 import { AlterarValorModal, DividirModal, type MensalidadeEditavel } from '../components/Cobranca';
 
 interface Ficha {
@@ -126,12 +127,15 @@ export function AlunoFicha() {
         <section className="cartao pad">
           <h2 style={{ marginBottom: 8 }}>Dados pessoais</h2>
           <Linha r="Telefone (WhatsApp)" v={aluno.telefone || '—'} />
-          <Linha r="Nascimento" v={aluno.nascimento || '—'} />
+          <Linha r="Nascimento" v={aluno.nascimento ? dataBR(aluno.nascimento) : '—'} />
+          <Linha r="Sexo" v={aluno.sexo === 'F' ? 'Feminino' : aluno.sexo === 'M' ? 'Masculino' : '—'} />
           <Linha r="Responsável" v={aluno.responsavel ? `${aluno.responsavel}${aluno.responsavel_tel ? ' · ' + aluno.responsavel_tel : ''}` : '—'} />
           <Linha r="Grupo familiar" v={aluno.familia ? <>{aluno.familia}{familia.length > 0 && <> ({familia.map((f) => <Link key={f.id} to={`/alunos/${f.id}`}> {f.nome}</Link>)})</>}</> : 'Nenhum'} />
           <Linha r="Observações" v={aluno.observacoes || '—'} />
         </section>
       </div>
+
+      <AvaliacaoSecao aluno={aluno} />
 
       <section className="cartao">
         <div style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
@@ -222,6 +226,11 @@ function EditarAluno({ aluno, onFechar, onSalvo }: { aluno: Aluno; onFechar: () 
         <div className="linha-campos">
           <Campo rotulo="Telefone (WhatsApp)"><input inputMode="tel" value={f.telefone ?? ''} onChange={(e) => set('telefone', e.target.value)} /></Campo>
           <Campo rotulo="Nascimento"><input type="date" value={f.nascimento ?? ''} onChange={(e) => set('nascimento', e.target.value)} /></Campo>
+          <Campo rotulo="Sexo">
+            <select value={f.sexo ?? ''} onChange={(e) => setF({ ...f, sexo: (e.target.value || null) as Aluno['sexo'] })}>
+              <option value="">Não informado</option><option value="F">Feminino</option><option value="M">Masculino</option>
+            </select>
+          </Campo>
         </div>
         <div className="linha-campos">
           <Campo rotulo="Responsável"><input value={f.responsavel ?? ''} onChange={(e) => set('responsavel', e.target.value)} /></Campo>

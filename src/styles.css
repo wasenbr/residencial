@@ -55,6 +55,7 @@ table.tbl { border-collapse: collapse; width: 100%; font-size: 14px; }
 .pilula.atraso { background: var(--atraso-fundo); color: var(--atraso); }
 .pilula.aberto { background: var(--neutro); color: var(--neutro-texto); }
 .pilula.info { background: #E3EAF5; color: var(--azul); }
+.pilula.atencao { background: #FBF0D5; color: #6B4E0A; }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 18px; border-radius: 8px; border: 1px solid var(--borda-forte); background: #fff; font-weight: 600; font-size: 14px; color: var(--texto); text-decoration: none; cursor: pointer; }
 .btn:hover { background: #F7F8F5; }
 .btn.primario { background: var(--marca); border-color: var(--marca); color: #fff; }
@@ -100,9 +101,32 @@ button.modalidade-link:focus-visible { outline: 2px solid var(--marca); outline-
 .lista-cartoes { display: flex; flex-direction: column; gap: 10px; }
 .item-lista { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 64px; padding: 12px 16px; border-radius: 12px; background: #fff; border: 1px solid var(--borda); width: 100%; text-align: left; cursor: pointer; }
 
+/* Avaliação física */
+.aval-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items: start; }
+.aval-res { position: sticky; top: 16px; }
+.aval-dobras { display: grid; grid-template-columns: minmax(120px, 1.6fr) repeat(3, minmax(52px, 1fr)) minmax(52px, .8fr); gap: 8px 10px; align-items: center; }
+.aval-dobras .d { text-align: right; }
+.aval-linha { display: contents; }
+.aval-linha .entrada { min-height: 42px; padding: 0 8px; text-align: right; font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+.aval-linha.fora > * { opacity: .5; }
+.aval-perim { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px 16px; }
+.aval-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.aval-kpi { border: 1px solid var(--borda); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.impressao { display: none; }
+/* Só as páginas que têm versão para imprimir trocam a tela por ela. */
+@media print {
+  body:has(.impressao) :is(.menu, .abas, .toast, .conteudo > :not(.impressao)) { display: none !important; }
+  body:has(.impressao), body:has(.impressao) .app { background: #fff; display: block; }
+  body:has(.impressao) .conteudo { padding: 0; }
+  .impressao { display: block; color: #000; font-size: 13px; }
+  .impressao h3 { font-size: 14px; margin: 12px 0 4px; }
+  .impressao .tbl td { padding: 4px 6px; }
+}
+
 /* Celular */
 @media (max-width: 1100px) {
-  .graficos, .mods { grid-template-columns: minmax(0, 1fr); }
+  .graficos, .mods, .aval-layout { grid-template-columns: minmax(0, 1fr); }
+  .aval-res { position: static; order: -1; }
 }
 @media (max-width: 860px) {
   .menu { display: none; }
@@ -113,6 +137,8 @@ button.modalidade-link:focus-visible { outline: 2px solid var(--marca); outline-
   .abas a.ativo { color: var(--marca-escura); }
   .tbl th, .tbl td { padding: 10px 10px; }
   .esconde-cel { display: none; }
+  .aval-dobras { grid-template-columns: minmax(84px, 1.3fr) repeat(3, minmax(44px, 1fr)) minmax(40px, .8fr); gap: 8px 6px; }
+  .aval-perim { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .modal { max-width: none; border-radius: 16px 16px 0 0; align-self: flex-end; }
   .fundo-modal { padding: 0; align-items: flex-end; }
 }
