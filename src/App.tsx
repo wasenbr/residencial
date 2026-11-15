@@ -6,6 +6,7 @@ import { Historico } from './pages/Historico';
 import { Alunos } from './pages/Alunos';
 import { AlunoFicha } from './pages/AlunoFicha';
 import { AvaliacaoForm } from './pages/AvaliacaoForm';
+import { Avaliar } from './pages/Avaliar';
 import { Turmas } from './pages/Turmas';
 import { Mensalidades } from './pages/Mensalidades';
 import { Receber } from './pages/Receber';
@@ -36,6 +37,7 @@ function Casca() {
           <Route path="/alunos" element={<Alunos />} />
           <Route path="/alunos/:id" element={<AlunoFicha />} />
           <Route path="/alunos/:id/avaliacoes/:aid" element={<AvaliacaoForm />} />
+          <Route path="/avaliar" element={<Avaliar />} />
           <Route path="/turmas" element={<Turmas />} />
           <Route path="/mensalidades" element={<Mensalidades />} />
           <Route path="/receber" element={<Receber />} />

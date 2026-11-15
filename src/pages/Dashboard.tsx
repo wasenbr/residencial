@@ -239,6 +239,7 @@ function Inicio() {
       </section>
       <div className="atalhos">
         <Link className="atalho principal" to="/receber"><Icone nome="receber" tam={26} />Receber pagamento</Link>
+        <Link className="atalho" to="/avaliar"><Icone nome="avaliar" tam={26} cor="var(--marca)" />Avaliar aluno</Link>
         <Link className="atalho" to="/novo-aluno"><Icone nome="aluno" tam={26} cor="var(--marca)" />Novo aluno</Link>
         <Link className="atalho" to="/despesas/nova"><Icone nome="despesa" tam={26} cor="var(--marca)" />Lançar despesa</Link>
         <Link className="atalho" to="/gympass"><Icone nome="ok" tam={26} cor="var(--marca)" />Conferir Gympass</Link>

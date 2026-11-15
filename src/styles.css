@@ -100,7 +100,7 @@ button.modalidade-link:focus-visible { outline: 2px solid var(--marca); outline-
 .aviso-linha { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 56px; padding: 12px 14px; border-radius: 12px; background: #fff; border: 1px solid var(--borda); text-decoration: none; color: var(--texto); }
 .atalhos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .atalho { display: flex; flex-direction: column; justify-content: space-between; gap: 12px; min-height: 104px; padding: 16px; border-radius: 14px; background: #fff; border: 1px solid var(--borda); text-decoration: none; color: var(--texto); font-weight: 600; font-size: 16px; }
-.atalho.principal { background: var(--marca); border-color: var(--marca); color: #fff; }
+.atalho.principal { grid-column: 1 / -1; min-height: 72px; flex-direction: row; align-items: center; justify-content: flex-start; background: var(--marca); border-color: var(--marca); color: #fff; }
 .lista-cartoes { display: flex; flex-direction: column; gap: 10px; }
 .item-lista { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 64px; padding: 12px 16px; border-radius: 12px; background: #fff; border: 1px solid var(--borda); width: 100%; text-align: left; cursor: pointer; }
 

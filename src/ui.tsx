@@ -72,13 +72,14 @@ const icones: Record<string, ReactNode> = {
   aluno: <><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5" /><path d="M19 8v6M16 11h6" /></>,
   despesa: <><path d="M6 2.5h12v19l-3-2-3 2-3-2-3 2z" /><path d="M9 8h6M9 12h6" /></>,
   ok: <path d="M4 12l5 5L20 6" />,
+  avaliar: <><rect x="5" y="3.5" width="14" height="18" rx="2" /><path d="M9 3.5h6v3H9z" /><path d="M8.5 12h7M8.5 16h4.5" /></>,
 };
 export function Icone({ nome, cor = 'currentColor', tam = 22 }: { nome: keyof typeof icones; cor?: string; tam?: number }) {
   return <svg width={tam} height={tam} viewBox="0 0 24 24" fill="none" stroke={cor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{icones[nome]}</svg>;
 }
 
 export function Abas() {
-  const itens: [string, string, keyof typeof icones][] = [['/', 'Início', 'inicio'], ['/receber', 'Receber', 'receber'], ['/novo-aluno', 'Novo aluno', 'aluno'], ['/despesas', 'Despesas', 'despesa']];
+  const itens: [string, string, keyof typeof icones][] = [['/', 'Início', 'inicio'], ['/receber', 'Receber', 'receber'], ['/avaliar', 'Avaliar', 'avaliar'], ['/novo-aluno', 'Novo aluno', 'aluno'], ['/despesas', 'Despesas', 'despesa']];
   return (
     <nav className="abas" aria-label="Navegação">
       {itens.map(([to, rot, ic]) => (

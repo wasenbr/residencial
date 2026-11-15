@@ -1063,6 +1063,11 @@ export function criarApp() {
     const r = await c.env.DB.prepare('SELECT * FROM avaliacoes WHERE aluno_id = ? ORDER BY data, id').bind(Number(c.req.param('id'))).all();
     return c.json((r.results as Record<string, unknown>[]).map(lerAvaliacao));
   });
+  // Data da última avaliação de cada aluno (atalho "Avaliar" do celular).
+  app.get('/avaliacoes/ultimas', async (c) => {
+    const r = await c.env.DB.prepare('SELECT aluno_id, MAX(data) AS data, COUNT(*) AS total FROM avaliacoes GROUP BY aluno_id').all();
+    return c.json(r.results);
+  });
   app.get('/avaliacoes/:id', async (c) => {
     const r = await c.env.DB.prepare('SELECT * FROM avaliacoes WHERE id = ?').bind(Number(c.req.param('id'))).first<Record<string, unknown>>();
     if (!r) throw new Erro(404, 'Avaliação não encontrada.');
