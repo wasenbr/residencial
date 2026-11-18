@@ -31,7 +31,7 @@ Em produção, o export recria as tabelas, então o banco remoto precisa estar v
 
 ## Configuração (uma vez)
 
-- Token em dash.cloudflare.com → Perfil → API Tokens, com permissão **Account → D1 → Edit**.
+- Token em dash.cloudflare.com → Perfil → API Tokens, com permissão **Account → D1 → Edit** (só para este backup; o export não funciona com permissão de leitura).
 - `gh secret set CLOUDFLARE_API_TOKEN`
 - `gh secret set CLOUDFLARE_ACCOUNT_ID`
-- `gh secret set BACKUP_SENHA` (guarde essa senha fora do GitHub: sem ela o backup não abre)
+- `openssl rand -base64 32` gera a chave; `gh secret set BACKUP_SENHA` com ela. Use chave aleatória, nunca uma senha inventada: o repositório é público e qualquer pessoa logada no GitHub baixa o arquivo criptografado. Guarde a chave fora do GitHub: sem ela o backup não abre.

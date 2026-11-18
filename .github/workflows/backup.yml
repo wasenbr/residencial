@@ -1,13 +1,16 @@
 name: Backup
 # Exporta o banco D1 toda semana, criptografa e guarda como artifact por 90 dias.
 # O repositório é público: o arquivo só sai daqui criptografado.
-# Segredos: CLOUDFLARE_API_TOKEN (permissão "D1: Edit"), CLOUDFLARE_ACCOUNT_ID e BACKUP_SENHA.
+# Segredos: CLOUDFLARE_API_TOKEN (token só deste backup, "D1: Edit": o export exige),
+# CLOUDFLARE_ACCOUNT_ID e BACKUP_SENHA (chave aleatória: openssl rand -base64 32).
 # Restauração: docs/backup.md
 on:
   schedule:
     - cron: '0 6 * * 1' # segunda, 03:00 em Brasília
   workflow_dispatch:
 concurrency: backup
+permissions:
+  contents: read
 jobs:
   exportar:
     runs-on: ubuntu-latest
