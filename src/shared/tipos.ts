@@ -65,7 +65,7 @@ export interface Pagamento {
 
 export interface Despesa {
   id: number; competencia: string; descricao: string; categoria: string;
-  tipo: 'fixa' | 'variavel' | 'pessoal' | 'retirada'; valor: number; vencimento: string | null;
+  tipo: 'fixa' | 'variavel' | 'pessoal'; valor: number; vencimento: string | null;
   pago_em: string | null; despesa_fixa_id: number | null; professor_id: number | null;
 }
 

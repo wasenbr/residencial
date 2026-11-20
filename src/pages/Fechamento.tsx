@@ -64,7 +64,6 @@ export function Fechamento() {
           <Lin r="Total pessoal" v={r.despesas.totalPessoal} forte />
           <h2 style={{ margin: '20px 0 8px' }}>Contas</h2>
           <Lin r="Aluguel, INSS, contador e demais" v={r.despesas.contas} />
-          {r.despesas.retiradas > 0 && <Lin r="Retiradas da dona (fora das despesas)" v={r.despesas.retiradas} />}
         </section>
         <section className="cartao pad">
           <h2 style={{ marginBottom: 8 }}>Entra no caixa de {prox}</h2>

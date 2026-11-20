@@ -906,7 +906,7 @@ export function criarApp() {
   // ---------- Despesas ----------
   app.get('/despesas', async (c) => {
     const comp = compDe(c);
-    const r = await c.env.DB.prepare('SELECT * FROM despesas WHERE competencia = ? ORDER BY tipo = \'retirada\', pago_em IS NOT NULL, vencimento, id').bind(comp).all();
+    const r = await c.env.DB.prepare('SELECT * FROM despesas WHERE competencia = ? ORDER BY pago_em IS NOT NULL, vencimento, id').bind(comp).all();
     return c.json(r.results);
   });
   app.post('/despesas', async (c) => {
@@ -914,9 +914,9 @@ export function criarApp() {
     const b = await c.req.json<{ competencia: string; descricao: string; categoria?: string; tipo?: string; valor: number; vencimento?: string; pago?: boolean }>();
     if (!validaComp(b.competencia) || !b.descricao?.trim() || !(b.valor >= 0)) throw new Erro(400, 'Informe descrição e valor.');
     await exigeAberto(db, b.competencia);
-    const tipo = ['fixa', 'variavel', 'pessoal', 'retirada'].includes(b.tipo ?? '') ? b.tipo : 'variavel';
+    const tipo = ['fixa', 'variavel', 'pessoal'].includes(b.tipo ?? '') ? b.tipo : 'variavel';
     const r = await db.prepare('INSERT INTO despesas (competencia, descricao, categoria, tipo, valor, vencimento, pago_em) VALUES (?,?,?,?,?,?,?)')
-      .bind(b.competencia, b.descricao.trim(), b.categoria ?? 'Outros', tipo, b.valor, b.vencimento ?? null, b.pago || tipo === 'retirada' ? hoje() : null).run();
+      .bind(b.competencia, b.descricao.trim(), b.categoria ?? 'Outros', tipo, b.valor, b.vencimento ?? null, b.pago ? hoje() : null).run();
     return c.json({ id: r.meta.last_row_id }, 201);
   });
   app.put('/despesas/:id', async (c) => {
